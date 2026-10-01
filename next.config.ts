@@ -3,6 +3,11 @@ import createNextIntlPlugin from "next-intl/plugin";
 
 const withNextIntl = createNextIntlPlugin("./src/i18n/request.ts");
 
+// Set BUILD_TARGET=docker to get the self-contained standalone server
+// bundle the Dockerfile needs. The OpenNext/Cloudflare build consumes
+// the default Next output instead, so standalone must be OFF there.
+const isDockerBuild = process.env.BUILD_TARGET === "docker";
+
 /**
  * Baseline security headers applied to every response.
  *
@@ -67,7 +72,7 @@ const nextConfig: NextConfig = {
   // Emit a self-contained server bundle (.next/standalone) so the
   // Docker image can run without node_modules or the Next CLI.
   // Harmless outside Docker: `next start` keeps working as before.
-  output: "standalone",
+  output: isDockerBuild ? "standalone" : undefined,
 
   /**
    * Cross-origin dev access (Next.js 16).
@@ -162,3 +167,14 @@ const nextConfig: NextConfig = {
 };
 
 export default withNextIntl(nextConfig);
+
+// Lets `next dev` talk to local versions of Cloudflare bindings via
+// @opennextjs/cloudflare. No effect on production builds. Guarded so a
+// dev machine without the adapter installed can still run `next dev`.
+if (process.env.NODE_ENV === "development") {
+  void import("@opennextjs/cloudflare")
+    .then(({ initOpenNextCloudflareForDev }) => initOpenNextCloudflareForDev())
+    .catch(() => {
+      // adapter not installed yet — ignore
+    });
+}
