@@ -1,0 +1,6 @@
+# Static-asset caching for the OpenNext/Workers deploy.
+# Next emits content-hashed filenames under /_next/static, so they are
+# safe to cache forever. Everything else is handled by the Worker and
+# the Cache-Control headers set in next.config.ts.
+/_next/static/*
+  Cache-Control: public, max-age=31536000, immutable
