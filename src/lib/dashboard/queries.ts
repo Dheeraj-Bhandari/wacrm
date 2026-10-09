@@ -15,7 +15,10 @@ import type {
   PipelineStageSlice,
   ResponseTimeBucket,
   ResponseTimeSummary,
+  TodayActivitiesBundle,
+  TodayActivityItem,
 } from './types'
+import type { ActivityStatus, ActivityType } from '@/types'
 
 // ------------------------------------------------------------
 // All client-side aggregation. RLS scopes every query to the
@@ -395,4 +398,59 @@ export async function loadActivity(db: DB, limit = 20): Promise<ActivityItem[]> 
   return items
     .sort((a, b) => (a.at > b.at ? -1 : a.at < b.at ? 1 : 0))
     .slice(0, limit)
+}
+
+// --- 6. Today's activities ---------------------------------------------
+
+/**
+ * Activities due today (local day) that still need doing — pending or
+ * overdue. Returns up to `limit` rows plus the true total so the widget
+ * can show "+N more". A pending activity whose due time has already
+ * passed is surfaced as 'overdue' at read time (the scheduler also
+ * sweeps these, but a client between cron ticks shouldn't miss it).
+ */
+export async function loadTodayActivities(
+  db: DB,
+  limit = 8,
+): Promise<TodayActivitiesBundle> {
+  const start = startOfLocalDay()
+  const end = new Date(start)
+  end.setDate(end.getDate() + 1)
+
+  const { data, error, count } = await db
+    .from('activities')
+    .select('id, type, title, due_at, status, contact:contacts(name, phone)', {
+      count: 'exact',
+    })
+    .in('status', ['pending', 'overdue'])
+    .gte('due_at', start.toISOString())
+    .lt('due_at', end.toISOString())
+    .order('due_at', { ascending: true })
+    .limit(limit)
+  if (error) throw error
+
+  const now = new Date()
+  const items: TodayActivityItem[] = (data ?? []).map((row) => {
+    const contact = Array.isArray(row.contact) ? row.contact[0] : row.contact
+    const status = row.status as ActivityStatus
+    const effective: ActivityStatus =
+      status === 'pending' && new Date(row.due_at as string) < now
+        ? 'overdue'
+        : status
+    return {
+      id: row.id as string,
+      type: row.type as ActivityType,
+      title: row.title as string,
+      due_at: row.due_at as string,
+      status: effective,
+      contactName:
+        (contact as { name?: string; phone?: string } | null)?.name ||
+        (contact as { name?: string; phone?: string } | null)?.phone ||
+        null,
+      contactPhone:
+        (contact as { name?: string; phone?: string } | null)?.phone || null,
+    }
+  })
+
+  return { items, total: count ?? items.length }
 }

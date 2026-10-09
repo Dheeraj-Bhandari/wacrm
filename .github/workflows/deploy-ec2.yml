@@ -1,0 +1,184 @@
+name: Deploy to EC2
+
+# ============================================================
+# Build → push → deploy pipeline for the self-hosted EC2 box.
+#
+# Flow:
+#   1. Build the Next.js Docker image (NEXT_PUBLIC_* baked in as build
+#      args) and push it to a PRIVATE Docker Hub repo with two tags:
+#        - prod_<DD_MON_YYYY>-<short-sha>  (immutable, traceable)
+#        - prod                            (rolling, what compose pulls)
+#   2. Authenticate to AWS via OIDC (no long-lived keys) and use SSM
+#      Run Command to drive the EC2 instance — no SSH keys or open 22.
+#   3. On the box: write the chosen tag into ~/wacrm, `docker compose
+#      pull` + `up -d` the new image, then prune old images to keep the
+#      27 GB disk from filling up.
+#
+# Trigger: pushes to main, or a manual run. See docs/deploy-ec2.md for
+# the one-time AWS/GitHub setup (OIDC role, SSM, secrets/variables).
+# ============================================================
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-ec2
+  cancel-in-progress: false
+
+# Required for the OIDC token exchange with AWS.
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  # Docker Hub private repo (owner/name). Override via repo variable if different.
+  IMAGE_REPO: ${{ vars.DOCKERHUB_REPO || 'codewithme898/neuraltalk.ai' }}
+
+jobs:
+  build-and-push:
+    name: Build and push image
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+      tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Compute image tags
+        id: meta
+        run: |
+          # Date like 09_OCT_2026 (uppercase month), plus the short SHA.
+          DATE=$(date -u +'%d_%b_%Y' | tr '[:lower:]' '[:upper:]')
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          TAG="prod_${DATE}-${SHORT_SHA}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "image=${IMAGE_REPO}:${TAG}" >> "$GITHUB_OUTPUT"
+          echo "Building ${IMAGE_REPO}:${TAG}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          # Immutable dated+sha tag AND the rolling `prod` tag the
+          # compose file pulls by default.
+          tags: |
+            ${{ steps.meta.outputs.image }}
+            ${{ env.IMAGE_REPO }}:prod
+          # NEXT_PUBLIC_* are inlined into the client bundle at build
+          # time, so they must be passed as build args here. Server-only
+          # secrets stay out of the image and are injected at runtime
+          # from .env.prod on the host.
+          build-args: |
+            NEXT_PUBLIC_SUPABASE_URL=${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+            NEXT_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+            NEXT_PUBLIC_SITE_URL=${{ vars.NEXT_PUBLIC_SITE_URL }}
+            NEXT_PUBLIC_APP_LOCALE=${{ vars.NEXT_PUBLIC_APP_LOCALE || 'en' }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    name: Roll out on EC2
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Encode compose file
+        id: compose
+        run: |
+          # Base64 the prod compose so the SSM script can recreate it
+          # on the box verbatim — this keeps ~/wacrm/docker-compose.prod.yml
+          # in sync with the repo on every deploy (one less manual step).
+          echo "b64=$(base64 -w0 docker-compose.prod.yml)" >> "$GITHUB_OUTPUT"
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'ap-south-1' }}
+
+      - name: Deploy via SSM Run Command
+        env:
+          INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+          IMAGE: ${{ needs.build-and-push.outputs.image }}
+          COMPOSE_B64: ${{ steps.compose.outputs.b64 }}
+        run: |
+          set -euo pipefail
+
+          # Remote script executed on the EC2 box by SSM (runs as root).
+          # Docker is already logged in to the private repo on the box
+          # (persisted ~/.docker/config.json), so no login step here. It:
+          #  - refreshes the compose file from the repo,
+          #  - rolls out the pinned immutable IMAGE tag for this release,
+          #  - prunes old images to protect the 28 GB EC2 disk.
+          #
+          # It `cd`s into the ubuntu user's compose dir but runs docker
+          # as root (SSM default); the EC2 docker socket is root-owned so
+          # this is correct. .env.prod lives beside the compose file.
+          #
+          # Note: the persisted Docker credential must be readable by the
+          # user SSM runs as (root). If your `docker login` was done as
+          # `ubuntu`, either re-run it with `sudo docker login` once, or
+          # point root at it: `sudo cp ~/.docker/config.json /root/.docker/`.
+          read -r -d '' REMOTE <<REMOTE_EOF || true
+          set -euo pipefail
+          cd /home/ubuntu/wacrm
+          export IMAGE='${IMAGE}'
+          echo "Deploying image: \$IMAGE"
+          # Refresh the compose file from the repo (keeps the box in sync).
+          echo '${COMPOSE_B64}' | base64 -d > docker-compose.prod.yml
+          docker compose -f docker-compose.prod.yml --env-file .env.prod pull
+          docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
+          # Wait for the healthcheck to settle, then show status.
+          sleep 20
+          docker compose -f docker-compose.prod.yml --env-file .env.prod ps
+          # Remove dangling layers and any image not used by a running
+          # container (keeps only the live image). Frees disk on EC2.
+          docker image prune -af
+          REMOTE_EOF
+
+          # Build the --parameters payload as a JSON object so the
+          # multi-line script survives intact (the `commands=` shorthand
+          # mangles newlines and quotes). jq -Rs reads the whole script
+          # as one raw string and wraps it in the required array.
+          PARAMS=$(jq -Rs '{commands: [.]}' <<< "$REMOTE")
+
+          # Fire the command and capture its id.
+          CMD_ID=$(aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name "AWS-RunShellScript" \
+            --comment "wacrm deploy ${IMAGE}" \
+            --parameters "$PARAMS" \
+            --query "Command.CommandId" --output text)
+          echo "SSM CommandId: $CMD_ID"
+
+          # Poll until the command finishes, then surface its output.
+          aws ssm wait command-executed \
+            --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" || true
+
+          STATUS=$(aws ssm get-command-invocation \
+            --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
+            --query "Status" --output text)
+          echo "----- stdout -----"
+          aws ssm get-command-invocation \
+            --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
+            --query "StandardOutputContent" --output text
+          echo "----- stderr -----"
+          aws ssm get-command-invocation \
+            --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
+            --query "StandardErrorContent" --output text
+
+          echo "Final status: $STATUS"
+          [ "$STATUS" = "Success" ] || { echo "::error::SSM command did not succeed"; exit 1; }

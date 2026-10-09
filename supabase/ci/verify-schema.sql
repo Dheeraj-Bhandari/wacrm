@@ -75,6 +75,64 @@ BEGIN
       'messages.error_code/error_title/error_details are missing — migration 042 did not apply';
   END IF;
 
+  -- The activities table (043) is the scheduling backbone; a typo in its
+  -- name applies cleanly and leaves every reminder silently un-storable.
+  IF to_regclass('public.activities') IS NULL THEN
+    RAISE EXCEPTION 'public.activities is missing — migration 043 did not apply';
+  END IF;
+
+  -- Email templates + per-account reminder prefs (044).
+  IF to_regclass('public.email_templates') IS NULL THEN
+    RAISE EXCEPTION 'public.email_templates is missing — migration 044 did not apply';
+  END IF;
+  IF to_regclass('public.reminder_settings') IS NULL THEN
+    RAISE EXCEPTION 'public.reminder_settings is missing — migration 044 did not apply';
+  END IF;
+
+  -- The scheduled-broadcast due index (045) is what the cron's due
+  -- selection relies on; absent, scheduled sends degrade to a full scan.
+  IF to_regclass('public.idx_broadcasts_scheduled_due') IS NULL THEN
+    RAISE EXCEPTION
+      'idx_broadcasts_scheduled_due is missing — migration 045 did not apply';
+  END IF;
+
+  -- Reminder lead-time + per-channel sent timestamps (046). A missing
+  -- column here is a silent PostgREST error at reminder-send time.
+  IF (
+    SELECT COUNT(*) FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'reminder_settings'
+      AND column_name = 'lead_time_minutes'
+  ) <> 1 THEN
+    RAISE EXCEPTION
+      'reminder_settings.lead_time_minutes is missing — migration 046 did not apply';
+  END IF;
+  IF (
+    SELECT COUNT(*) FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'activities'
+      AND column_name IN ('reminder_whatsapp_sent_at', 'reminder_email_sent_at')
+  ) <> 2 THEN
+    RAISE EXCEPTION
+      'activities reminder channel timestamps are missing — migration 046 did not apply';
+  END IF;
+
+  -- Multi-lead-time + variable map + per-offset tracking (047).
+  IF (
+    SELECT COUNT(*) FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'reminder_settings'
+      AND column_name IN ('lead_times_minutes', 'whatsapp_variable_map')
+  ) <> 2 THEN
+    RAISE EXCEPTION
+      'reminder_settings multi-leadtime/varmap columns are missing — migration 047 did not apply';
+  END IF;
+  IF (
+    SELECT COUNT(*) FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'activities'
+      AND column_name = 'reminder_fired_offsets'
+  ) <> 1 THEN
+    RAISE EXCEPTION
+      'activities.reminder_fired_offsets is missing — migration 047 did not apply';
+  END IF;
+
   RAISE NOTICE 'schema verification passed';
 END
 $$;

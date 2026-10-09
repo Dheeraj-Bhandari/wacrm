@@ -65,3 +65,28 @@ export interface ActivityItem {
   /** Optional deep-link for the whole row (not all items have a target). */
   href?: string
 }
+
+// --- Today's activities widget -----------------------------------------
+
+import type { ActivityType, ActivityStatus } from '@/types'
+
+/** A row in the dashboard "Today's activities" widget. */
+export interface TodayActivityItem {
+  id: string
+  type: ActivityType
+  title: string
+  /** ISO due instant. */
+  due_at: string
+  /** Effective status (overdue computed at read time). */
+  status: ActivityStatus
+  /** Linked contact display name, if any. */
+  contactName: string | null
+  /** Linked contact phone (E.164), if any. */
+  contactPhone: string | null
+}
+
+export interface TodayActivitiesBundle {
+  items: TodayActivityItem[]
+  /** Total count due today (may exceed items when capped). */
+  total: number
+}

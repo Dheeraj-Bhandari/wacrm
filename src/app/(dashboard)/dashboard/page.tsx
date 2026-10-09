@@ -17,6 +17,7 @@ import {
   loadMetrics,
   loadPipelineDonut,
   loadResponseTime,
+  loadTodayActivities,
 } from '@/lib/dashboard/queries'
 import type {
   ActivityItem,
@@ -24,6 +25,7 @@ import type {
   MetricsBundle,
   PipelineDonutData,
   ResponseTimeSummary,
+  TodayActivitiesBundle,
 } from '@/lib/dashboard/types'
 
 import { MetricCard } from '@/components/dashboard/metric-card'
@@ -33,6 +35,8 @@ import { ConversationsChart } from '@/components/dashboard/conversations-chart'
 import { PipelineDonut } from '@/components/dashboard/pipeline-donut'
 import { ResponseTimeChart } from '@/components/dashboard/response-time-chart'
 import { ActivityFeed } from '@/components/dashboard/activity-feed'
+import { TodaysActivities } from '@/components/dashboard/todays-activities'
+import { DashboardLayout, type DashboardSection } from '@/components/dashboard/dashboard-layout'
 
 import { useTranslations } from 'next-intl'
 
@@ -40,7 +44,7 @@ type RangeDays = 7 | 30 | 90
 
 export default function DashboardPage() {
   const t = useTranslations('Dashboard.page')
-  const { defaultCurrency } = useAuth()
+  const { defaultCurrency, profile } = useAuth()
   const [metrics, setMetrics] = useState<MetricsBundle | null>(null)
   const [metricsLoading, setMetricsLoading] = useState(true)
 
@@ -63,6 +67,9 @@ export default function DashboardPage() {
 
   const [activity, setActivity] = useState<ActivityItem[] | null>(null)
   const [activityLoading, setActivityLoading] = useState(true)
+
+  const [todayActivities, setTodayActivities] = useState<TodayActivitiesBundle | null>(null)
+  const [todayActivitiesLoading, setTodayActivitiesLoading] = useState(true)
 
   const loadAll = useCallback(() => {
     const db = createClient()
@@ -97,6 +104,20 @@ export default function DashboardPage() {
       .then((a) => setActivity(a))
       .catch((err) => console.error('[dashboard] activity failed:', err))
       .finally(() => setActivityLoading(false))
+
+    void loadTodayActivities(db)
+      .then((a) => setTodayActivities(a))
+      .catch((err) => console.error('[dashboard] today activities failed:', err))
+      .finally(() => setTodayActivitiesLoading(false))
+  }, [])
+
+  // Reload just the Today's Agenda widget (after a quick reschedule),
+  // without re-fetching every other dashboard section.
+  const reloadToday = useCallback(() => {
+    const db = createClient()
+    void loadTodayActivities(db)
+      .then((a) => setTodayActivities(a))
+      .catch((err) => console.error('[dashboard] today activities reload failed:', err))
   }, [])
 
   useEffect(() => {
@@ -121,6 +142,115 @@ export default function DashboardPage() {
     [series],
   )
 
+  // Dashboard sections, in their default order. The DashboardLayout
+  // reorders + persists these per user; each `node` is the exact markup
+  // that previously lived inline, so behaviour is unchanged when the
+  // layout is left at its default.
+  const sections: DashboardSection[] = [
+    {
+      id: 'metrics',
+      node: (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {metricsLoading || !metrics ? (
+            Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)
+          ) : (
+            <>
+              <MetricCard
+                title={t('activeConversations')}
+                value={metrics.activeConversations.current.toLocaleString()}
+                icon={MessageSquare}
+                delta={{
+                  sign: metrics.activeConversations.previous,
+                  label: deltaLabel(
+                    metrics.activeConversations.previous,
+                    t('newTodayVsYesterday'),
+                    t('noChange', { suffix: t('newTodayVsYesterday') }),
+                  ),
+                }}
+              />
+              <MetricCard
+                title={t('newContactsToday')}
+                value={metrics.newContactsToday.current.toLocaleString()}
+                icon={UserPlus}
+                delta={{
+                  sign:
+                    metrics.newContactsToday.current - metrics.newContactsToday.previous,
+                  label: deltaLabel(
+                    metrics.newContactsToday.current - metrics.newContactsToday.previous,
+                    t('vsYesterday'),
+                    t('noChange', { suffix: t('vsYesterday') }),
+                  ),
+                }}
+              />
+              <MetricCard
+                title={t('openDealsValue')}
+                value={formatCurrency(metrics.openDealsValue, defaultCurrency)}
+                icon={DollarSign}
+                subtitle={t('openDeals', { count: metrics.openDealsCount })}
+              />
+              <MetricCard
+                title={t('messagesSentToday')}
+                value={metrics.messagesSentToday.current.toLocaleString()}
+                icon={Send}
+                delta={{
+                  sign:
+                    metrics.messagesSentToday.current - metrics.messagesSentToday.previous,
+                  label: deltaLabel(
+                    metrics.messagesSentToday.current - metrics.messagesSentToday.previous,
+                    t('vsYesterday'),
+                    t('noChange', { suffix: t('vsYesterday') }),
+                  ),
+                }}
+              />
+            </>
+          )}
+        </div>
+      ),
+    },
+    { id: 'quickActions', node: <QuickActions /> },
+    {
+      id: 'charts',
+      node: (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
+          <div className="h-full lg:col-span-3">
+            <ConversationsChart
+              series={series}
+              loading={seriesLoading}
+              range={range}
+              onRangeChange={handleRangeChange}
+            />
+          </div>
+          <div className="h-full lg:col-span-2">
+            <PipelineDonut
+              data={pipeline}
+              loading={pipelineLoading}
+              currency={defaultCurrency}
+            />
+          </div>
+        </div>
+      ),
+    },
+    {
+      id: 'responseTime',
+      node: <ResponseTimeChart data={responseTime} loading={responseTimeLoading} />,
+    },
+    {
+      id: 'activity',
+      node: (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <TodaysActivities
+            data={todayActivities}
+            loading={todayActivitiesLoading}
+            onReschedule={reloadToday}
+          />
+          <ActivityFeed items={activity} loading={activityLoading} />
+        </div>
+      ),
+    },
+  ]
+
+  const layoutKey = `wacrm:dashboard:layout:${profile?.id ?? 'me'}`
+
   return (
     <div className="space-y-5">
       {/* Header */}
@@ -131,96 +261,7 @@ export default function DashboardPage() {
         </p>
       </div>
 
-      {/* Metric cards */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {metricsLoading || !metrics ? (
-          Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)
-        ) : (
-          <>
-            <MetricCard
-              title={t('activeConversations')}
-              value={metrics.activeConversations.current.toLocaleString()}
-              icon={MessageSquare}
-              delta={{
-                sign: metrics.activeConversations.previous,
-                label: deltaLabel(
-                  metrics.activeConversations.previous, 
-                  t('newTodayVsYesterday'), 
-                  t('noChange', { suffix: t('newTodayVsYesterday') })
-                ),
-              }}
-            />
-            <MetricCard
-              title={t('newContactsToday')}
-              value={metrics.newContactsToday.current.toLocaleString()}
-              icon={UserPlus}
-              delta={{
-                sign:
-                  metrics.newContactsToday.current - metrics.newContactsToday.previous,
-                label: deltaLabel(
-                  metrics.newContactsToday.current - metrics.newContactsToday.previous,
-                  t('vsYesterday'),
-                  t('noChange', { suffix: t('vsYesterday') })
-                ),
-              }}
-            />
-            <MetricCard
-              title={t('openDealsValue')}
-              value={formatCurrency(metrics.openDealsValue, defaultCurrency)}
-              icon={DollarSign}
-              subtitle={t('openDeals', { count: metrics.openDealsCount })}
-            />
-            <MetricCard
-              title={t('messagesSentToday')}
-              value={metrics.messagesSentToday.current.toLocaleString()}
-              icon={Send}
-              delta={{
-                sign:
-                  metrics.messagesSentToday.current - metrics.messagesSentToday.previous,
-                label: deltaLabel(
-                  metrics.messagesSentToday.current - metrics.messagesSentToday.previous,
-                  t('vsYesterday'),
-                  t('noChange', { suffix: t('vsYesterday') })
-                ),
-              }}
-            />
-          </>
-        )}
-      </div>
-
-      {/* Quick actions */}
-      <QuickActions />
-
-      {/* Charts row */}
-      {/* items-stretch (the grid default) stretches the two columns to
-          match the tallest sibling; adding h-full on each wrapper and
-          on the inner panels makes both cards actually fill that
-          stretched height so their rounded borders line up. Without
-          this, the pipeline card rendered at its natural (shorter)
-          height while the line chart drove the row height. */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
-        <div className="h-full lg:col-span-3">
-          <ConversationsChart
-            series={series}
-            loading={seriesLoading}
-            range={range}
-            onRangeChange={handleRangeChange}
-          />
-        </div>
-        <div className="h-full lg:col-span-2">
-          <PipelineDonut
-            data={pipeline}
-            loading={pipelineLoading}
-            currency={defaultCurrency}
-          />
-        </div>
-      </div>
-
-      {/* Response time */}
-      <ResponseTimeChart data={responseTime} loading={responseTimeLoading} />
-
-      {/* Activity feed */}
-      <ActivityFeed items={activity} loading={activityLoading} />
+      <DashboardLayout sections={sections} storageKey={layoutKey} />
     </div>
   )
 }

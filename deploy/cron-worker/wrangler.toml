@@ -1,0 +1,29 @@
+# Cloudflare Worker — scheduler pinger.
+#
+# A tiny Worker whose only job is to hit GET /api/cron/scheduler on a
+# Cron Trigger, so activity reminders fire and scheduled broadcasts send
+# without a manual curl. This is independent of where the app itself is
+# hosted — it works whether the CRM runs on EC2, Vercel, or Cloudflare.
+#
+# Deploy:
+#   cd deploy/cron-worker
+#   npx wrangler secret put CRON_SECRET      # = AUTOMATION_CRON_SECRET
+#   npx wrangler deploy
+#
+# The SCHEDULER_URL var is public (not secret); the CRON_SECRET is set as
+# a Worker secret so it never lives in this file.
+
+name = "wacrm-scheduler-cron"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+
+# Cloudflare's cron supports 1-minute granularity. "* * * * *" = every
+# minute. Loosen to "*/5 * * * *" if once-every-5-min is enough.
+[triggers]
+crons = ["* * * * *"]
+
+[vars]
+# Full URL of your deployed scheduler endpoint.
+SCHEDULER_URL = "https://crm.example.com/api/cron/scheduler"
+# CRON_SECRET is NOT set here — add it as a secret:
+#   npx wrangler secret put CRON_SECRET

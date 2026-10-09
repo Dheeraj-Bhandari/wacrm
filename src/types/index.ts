@@ -124,6 +124,9 @@ export interface Contact {
   /** Hydrated by queries that embed `contact_tags(tags(*))` (e.g. the
    *  Inbox conversation list, for tag filtering). Absent otherwise. */
   tags?: Tag[];
+  /** Hydrated by queries that embed `deals(stage_id, status)` (the Inbox
+   *  conversation list, for pipeline-stage filtering). Absent otherwise. */
+  deals?: { stage_id: string | null; status: string | null }[];
 }
 
 export interface Tag {
@@ -198,7 +201,7 @@ export interface Conversation {
 // Notifications (migration 027)
 // ============================================================
 
-export type NotificationType = 'conversation_assigned';
+export type NotificationType = 'conversation_assigned' | 'reminder';
 
 export interface Notification {
   id: string;
@@ -697,5 +700,145 @@ export interface QuickReply {
   /** Set when `kind === 'interactive'`. */
   interactive_payload?: InteractiveMessagePayload | null;
   created_at: string;
+  updated_at: string;
+}
+
+// ============================================================
+// Activities / tasks / reminders (migration 043)
+// ============================================================
+
+export type ActivityType =
+  | 'call'
+  | 'whatsapp_message'
+  | 'email'
+  | 'task'
+  | 'meeting'
+  | 'reminder';
+
+export type ActivityStatus = 'pending' | 'done' | 'cancelled' | 'overdue';
+
+/**
+ * Dynamic-value keys a reminder can interpolate from the linked
+ * contact / deal / conversation. Used both as WhatsApp template param
+ * sources and email placeholder values. See src/lib/activities/dynamic-values.ts.
+ */
+export type ReminderDynamicKey =
+  | 'lead_name'
+  | 'lead_phone'
+  | 'lead_email'
+  | 'lead_company'
+  | 'deal_title'
+  | 'deal_value'
+  | 'deal_stage'
+  | 'last_messages'
+  | 'activity_title'
+  | 'activity_due'
+  | 'activity_notes';
+
+/** WhatsApp side of a reminder: which template, and how to fill it. */
+export interface ReminderWhatsAppConfig {
+  /** Member/agent number the reminder is delivered to (E.164). */
+  to?: string;
+  template_name: string;
+  language?: string;
+  /**
+   * Positional template params. Key is the {{N}} index as a string;
+   * value is either a literal string or a `ReminderDynamicKey` resolved
+   * at send time. A leading "=" marks a literal to disambiguate from a
+   * dynamic key (e.g. "=hello"); otherwise a known dynamic key is
+   * resolved and anything else is treated as a literal.
+   */
+  variables?: Record<string, string>;
+}
+
+/** Email side of a reminder. */
+export interface ReminderEmailConfig {
+  to?: string;
+  template_id: string;
+}
+
+export interface ReminderConfig {
+  whatsapp?: ReminderWhatsAppConfig;
+  email?: ReminderEmailConfig;
+}
+
+export interface Activity {
+  id: string;
+  account_id: string;
+  user_id: string;
+  contact_id: string | null;
+  conversation_id?: string | null;
+  deal_id?: string | null;
+  assigned_to?: string | null;
+  type: ActivityType;
+  title: string;
+  notes?: string | null;
+  due_at: string;
+  remind_at?: string | null;
+  status: ActivityStatus;
+  reminder_config?: ReminderConfig | null;
+  reminder_fired_at?: string | null;
+  reminder_error?: string | null;
+  /** Set when the WhatsApp reminder was successfully delivered. */
+  reminder_whatsapp_sent_at?: string | null;
+  /** Set when the email reminder was successfully delivered. */
+  reminder_email_sent_at?: string | null;
+  /** Lead-time offsets (minutes) already fired, so each fires once. */
+  reminder_fired_offsets?: number[] | null;
+  completed_at?: string | null;
+  created_at: string;
+  updated_at: string;
+  /** Hydrated joins (optional). */
+  contact?: Contact;
+  deal?: Deal;
+  assignee?: Profile;
+}
+
+// ============================================================
+// Email templates + reminder settings (migration 044)
+// ============================================================
+
+export interface EmailTemplate {
+  id: string;
+  account_id: string;
+  user_id: string;
+  name: string;
+  /** Supports {{placeholder}} interpolation at send time. */
+  subject: string;
+  body_html: string;
+  body_text?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * One WhatsApp positional variable's mapping: which curated source fills
+ * it, and the fallback value when that source resolves empty.
+ */
+export interface ReminderVariableMapping {
+  /** A ReminderVariableSource token (see dynamic-values.ts). */
+  source: string;
+  /** Literal fallback used when the source resolves to an empty string. */
+  default?: string;
+}
+
+export interface ReminderSettings {
+  account_id: string;
+  default_whatsapp_template?: string | null;
+  default_whatsapp_language?: string | null;
+  default_email_template_id?: string | null;
+  notify_whatsapp_number?: string | null;
+  notify_email?: string | null;
+  whatsapp_enabled: boolean;
+  email_enabled: boolean;
+  /**
+   * Minutes before an activity's due time to fire its reminder. 0 = at due time.
+   * @deprecated superseded by `lead_times_minutes`; kept for back-compat.
+   */
+  lead_time_minutes: number;
+  /** Lead times (minutes before due) — one reminder fires per value. */
+  lead_times_minutes: number[];
+  /** Maps WhatsApp positional vars ("1","2",…) to a source + default. */
+  whatsapp_variable_map: Record<string, ReminderVariableMapping>;
   updated_at: string;
 }

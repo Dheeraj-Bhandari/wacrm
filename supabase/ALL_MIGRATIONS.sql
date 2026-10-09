@@ -1,10 +1,10 @@
-﻿-- Combined wacrm migrations (run in Supabase SQL Editor)
+-- Combined wacrm migrations (run in Supabase SQL Editor)
 
 -- ============================================================
 -- FILE: 001_initial_schema.sql
 -- ============================================================
 -- ============================================================
--- Idempotent migration â€” safe to run multiple times.
+-- Idempotent migration — safe to run multiple times.
 -- Uses IF NOT EXISTS for tables/indexes and DROP IF EXISTS
 -- for policies/triggers (Postgres has no CREATE POLICY IF NOT EXISTS).
 -- ============================================================
@@ -354,7 +354,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Apply to tables with updated_at â€” drop existing triggers first to avoid conflicts
+-- Apply to tables with updated_at — drop existing triggers first to avoid conflicts
 DROP TRIGGER IF EXISTS set_updated_at ON profiles;
 DROP TRIGGER IF EXISTS set_updated_at ON contacts;
 DROP TRIGGER IF EXISTS set_updated_at ON conversations;
@@ -375,7 +375,7 @@ CREATE TRIGGER set_updated_at BEFORE UPDATE ON broadcasts FOR EACH ROW EXECUTE F
 -- AUTO-CREATE PROFILE ON USER SIGNUP
 -- Uses SECURITY DEFINER with owner=postgres (bypasses RLS).
 -- EXCEPTION block ensures signup still succeeds even if profile
--- insert fails â€” profile can be created later if needed.
+-- insert fails — profile can be created later if needed.
 -- ============================================================
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 DROP FUNCTION IF EXISTS public.handle_new_user();
@@ -432,8 +432,8 @@ END $$;
 -- ============================================================
 -- ============================================================
 -- Pipeline enhancements:
---   * deals.assigned_to â€” optional FK to profiles.id
---   * deals.status â€” CHECK constraint ('open', 'won', 'lost')
+--   * deals.assigned_to — optional FK to profiles.id
+--   * deals.status — CHECK constraint ('open', 'won', 'lost')
 --     (replaces the old default 'active' with spec-compliant values)
 --
 -- Idempotent: safe to run multiple times.
@@ -488,10 +488,10 @@ ALTER TABLE deals
 --      aggregate trigger's COUNT(*) FILTER scans are fast.
 --   3. Installs an AFTER INSERT/UPDATE/DELETE trigger on
 --      broadcast_recipients that re-aggregates the parent broadcasts
---      row. Keeps writer code trivial â€” the webhook + hook only touch
+--      row. Keeps writer code trivial — the webhook + hook only touch
 --      the recipient row; counts stay consistent automatically.
 --
--- Idempotent â€” safe to run multiple times.
+-- Idempotent — safe to run multiple times.
 -- ============================================================
 
 ALTER TABLE broadcast_recipients
@@ -541,7 +541,7 @@ BEGIN
     RETURN OLD;
   END IF;
 
-  -- INSERT or UPDATE â€” only recompute when status changed (or on fresh insert)
+  -- INSERT or UPDATE — only recompute when status changed (or on fresh insert)
   IF TG_OP = 'INSERT' OR OLD.status IS DISTINCT FROM NEW.status THEN
     PERFORM public.recompute_broadcast_counts(NEW.broadcast_id);
   END IF;
@@ -570,7 +570,7 @@ FOR EACH ROW EXECUTE FUNCTION public.broadcast_recipient_aggregate_trigger();
 --   ERROR 23503: update or delete on table "contacts" violates
 --   foreign key constraint ... on table <other>
 --
--- CASCADE is the wrong fix â€” it would silently wipe historical
+-- CASCADE is the wrong fix — it would silently wipe historical
 -- broadcast recipient rows (breaking audit + retroactively moving
 -- broadcasts.sent_count / delivered_count / read_count etc. via the
 -- aggregate trigger) and deal rows.
@@ -579,10 +579,10 @@ FOR EACH ROW EXECUTE FUNCTION public.broadcast_recipient_aggregate_trigger();
 -- contact_id. The UI is already null-safe (contact?.name ?? 'Unknown',
 -- contact?.phone, etc.).
 --
--- Idempotent â€” safe to run multiple times.
+-- Idempotent — safe to run multiple times.
 -- ============================================================
 
--- â”€â”€ broadcast_recipients.contact_id â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+-- ── broadcast_recipients.contact_id ────────────────────────────
 ALTER TABLE broadcast_recipients
   ALTER COLUMN contact_id DROP NOT NULL;
 
@@ -603,7 +603,7 @@ ALTER TABLE broadcast_recipients
     FOREIGN KEY (contact_id) REFERENCES contacts(id)
     ON DELETE SET NULL;
 
--- â”€â”€ deals.contact_id â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+-- ── deals.contact_id ───────────────────────────────────────────
 ALTER TABLE deals
   ALTER COLUMN contact_id DROP NOT NULL;
 
@@ -636,10 +636,10 @@ ALTER TABLE deals
 -- row change. For a 10k-recipient broadcast, the send loop produces
 -- 10k INSERTs + 10k UPDATEs = 20k full aggregate scans, each walking
 -- the (broadcast_id, status) index. Workable at small scale, but
--- O(nÂ²) overall.
+-- O(n²) overall.
 --
 -- This migration replaces that with an incremental trigger that
--- adjusts the parent broadcast's counts by Â±1 based on the OLD â†’
+-- adjusts the parent broadcast's counts by ±1 based on the OLD →
 -- NEW.status delta. O(1) per recipient change; no scans at all.
 --
 -- Semantic model (same as the lib/broadcast-status.ts "forward-only
@@ -650,8 +650,8 @@ ALTER TABLE deals
 --   replied_count    = status = 'replied'
 --   failed_count     = status = 'failed'
 --
--- A webhook that advances a recipient pending â†’ sent â†’ delivered â†’
--- read â†’ replied bumps every rung it crosses by 1. Going to 'failed'
+-- A webhook that advances a recipient pending → sent → delivered →
+-- read → replied bumps every rung it crosses by 1. Going to 'failed'
 -- only bumps failed_count (and can only happen from pending / sent,
 -- enforced in the webhook).
 --
@@ -659,7 +659,7 @@ ALTER TABLE deals
 -- function is retained so ops can run it manually if counts ever
 -- drift (e.g. after bulk DB surgery).
 --
--- Idempotent â€” safe to run multiple times.
+-- Idempotent — safe to run multiple times.
 -- ============================================================
 
 -- Delta a single column by +1 / -1.
@@ -728,10 +728,10 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
--- Trigger itself remains the same (INSERT/UPDATE/DELETE) â€” just its
+-- Trigger itself remains the same (INSERT/UPDATE/DELETE) — just its
 -- body has been replaced.
 
--- Safety net â€” rebuild counts from scratch. Retained as-is so ops can
+-- Safety net — rebuild counts from scratch. Retained as-is so ops can
 -- run it on demand if something ever drifts. Matches the incremental
 -- trigger's semantic model exactly.
 CREATE OR REPLACE FUNCTION public.recompute_broadcast_counts(bid UUID)
@@ -763,9 +763,9 @@ $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 -- FILE: 006_automations.sql
 -- ============================================================
 -- ============================================================
--- 006_automations.sql â€” Automations feature
+-- 006_automations.sql — Automations feature
 --
--- Idempotent migration â€” safe to run multiple times.
+-- Idempotent migration — safe to run multiple times.
 -- Follows the same conventions as 001_initial_schema.sql:
 --   IF NOT EXISTS on tables/indexes, DROP IF EXISTS before
 --   re-creating policies/triggers (Postgres has no
@@ -807,11 +807,11 @@ CREATE TRIGGER set_updated_at BEFORE UPDATE ON automations
 -- ============================================================
 -- AUTOMATION_STEPS
 --
--- `position`       â€” order within parent scope (root scope or a branch).
--- `parent_step_id` â€” NULL for root-level steps; set to the Condition
+-- `position`       — order within parent scope (root scope or a branch).
+-- `parent_step_id` — NULL for root-level steps; set to the Condition
 --                    step's id for steps that live inside one of its
 --                    branches.
--- `branch`         â€” NULL for root steps. For children of a Condition,
+-- `branch`         — NULL for root steps. For children of a Condition,
 --                    'yes' or 'no' identifying which path.
 -- ============================================================
 CREATE TABLE IF NOT EXISTS automation_steps (
@@ -877,7 +877,7 @@ CREATE POLICY "Users can view own automation logs" ON automation_logs FOR ALL
 -- 'pending', flips them to 'running', and resumes the automation
 -- from `next_step_position` with the saved `context` jsonb.
 --
--- Service-role only â€” writes never originate from the browser, and
+-- Service-role only — writes never originate from the browser, and
 -- the engine uses the service-role client. No user policy exposed.
 -- ============================================================
 CREATE TABLE IF NOT EXISTS automation_pending_executions (
@@ -900,7 +900,7 @@ CREATE INDEX IF NOT EXISTS idx_automation_pending_due
   ON automation_pending_executions(run_at) WHERE status = 'pending';
 
 ALTER TABLE automation_pending_executions ENABLE ROW LEVEL SECURITY;
--- No SELECT/INSERT/UPDATE/DELETE policy for authenticated users â€” all
+-- No SELECT/INSERT/UPDATE/DELETE policy for authenticated users — all
 -- access is server-side via the service-role key.
 
 
@@ -919,7 +919,7 @@ ALTER TABLE automation_pending_executions ENABLE ROW LEVEL SECURITY;
 -- two different contacts in the same second) could both read N and
 -- both write N+1, permanently losing one count.
 --
--- Idempotent â€” safe to re-run.
+-- Idempotent — safe to re-run.
 -- ============================================================
 
 CREATE OR REPLACE FUNCTION increment_automation_execution_count(p_automation_id UUID)
@@ -958,7 +958,7 @@ GRANT EXECUTE ON FUNCTION increment_automation_execution_count(UUID) TO service_
 --   avatars/{auth.uid()}/avatar-<timestamp>.<ext>
 -- The policies rely on the first path segment matching auth.uid()::text.
 --
--- Idempotent â€” safe to re-run.
+-- Idempotent — safe to re-run.
 -- ============================================================
 
 INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
@@ -1016,16 +1016,16 @@ CREATE POLICY "Users can delete their own avatar"
 --
 -- Adds two things the chat UI now needs:
 --
---   1. `messages.reply_to_message_id` â€” a self-FK so a message can
+--   1. `messages.reply_to_message_id` — a self-FK so a message can
 --      point at the message it replies to. We use the internal UUID
 --      (not Meta's message_id text), because Meta IDs aren't unique
 --      across phone numbers and can't be FK-constrained. The webhook
 --      resolves `context.id` from Meta into our internal UUID before
---      writing. ON DELETE SET NULL â€” a deleted parent must not nuke
+--      writing. ON DELETE SET NULL — a deleted parent must not nuke
 --      its replies (which today never happens, but the constraint
 --      should match intent).
 --
---   2. `message_reactions` table â€” one row per (message, actor).
+--   2. `message_reactions` table — one row per (message, actor).
 --      Reactions arrive concurrently from agents (UI) and customers
 --      (webhook). A row-level uniqueness constraint enforces "one
 --      reaction per actor per message" without read-modify-write
@@ -1034,7 +1034,7 @@ CREATE POLICY "Users can delete their own avatar"
 --      `conversation_id` is denormalised purely so Supabase Realtime
 --      can filter on it with a plain `eq`. Realtime can't join.
 --
--- Idempotent â€” safe to run multiple times.
+-- Idempotent — safe to run multiple times.
 -- ============================================================
 
 -- ============================================================
@@ -1044,7 +1044,7 @@ ALTER TABLE messages
   ADD COLUMN IF NOT EXISTS reply_to_message_id UUID
   REFERENCES messages(id) ON DELETE SET NULL;
 
--- Partial index â€” most messages aren't replies, so skip nulls.
+-- Partial index — most messages aren't replies, so skip nulls.
 CREATE INDEX IF NOT EXISTS idx_messages_reply_to
   ON messages(reply_to_message_id)
   WHERE reply_to_message_id IS NOT NULL;
@@ -1115,7 +1115,7 @@ CREATE POLICY "Users update their own agent reactions" ON message_reactions FOR 
     )
   );
 
--- Realtime â€” let the thread subscribe filtered by conversation_id.
+-- Realtime — let the thread subscribe filtered by conversation_id.
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -1135,15 +1135,15 @@ END $$;
 --
 -- What this migration adds:
 --
---   1. `flows` â€” the definition envelope (name, trigger config,
+--   1. `flows` — the definition envelope (name, trigger config,
 --      entry node, fallback policy, status). One row per authored bot.
 --
---   2. `flow_nodes` â€” the graph rows. Edges live INSIDE each node's
+--   2. `flow_nodes` — the graph rows. Edges live INSIDE each node's
 --      `config` JSONB (e.g. each button row carries its own
 --      `next_node_key`). Why edges-in-config rather than a separate
 --      `flow_edges` table:
 --        - The runner only ever asks "given current node X, where does
---          reply Y go?" â€” that's a single-row lookup with the JSON
+--          reply Y go?" — that's a single-row lookup with the JSON
 --          already on the row. Splitting edges out forces a join per
 --          inbound message.
 --        - The builder's natural unit of edit is the node ("change this
@@ -1160,14 +1160,14 @@ END $$;
 --      The (flow_id, node_key) UNIQUE constraint guarantees lookup
 --      determinism.
 --
---   3. `flow_runs` â€” per-contact runtime state machine. The linchpin
+--   3. `flow_runs` — per-contact runtime state machine. The linchpin
 --      is the partial unique index `idx_one_active_run_per_contact`:
 --      at most one ACTIVE run per (user_id, contact_id). Two concurrent
 --      webhook deliveries trying to start a run both attempt INSERT;
 --      the second fails with 23505 and the runner catches & exits.
 --      No locking required.
 --
---   4. `flow_run_events` â€” append-only audit. Used by the runner for
+--   4. `flow_run_events` — append-only audit. Used by the runner for
 --      idempotency (refuses to advance twice on the same Meta
 --      message_id) and by the future run-history viewer.
 --
@@ -1177,11 +1177,11 @@ END $$;
 --      instead of getting silently coerced into the "Unsupported
 --      message type" fallback in parseMessageContent.
 --
--- Idempotent â€” safe to run multiple times.
+-- Idempotent — safe to run multiple times.
 -- ============================================================
 
 -- ============================================================
--- 1. Messages table â€” widen content_type, add interactive_reply_id
+-- 1. Messages table — widen content_type, add interactive_reply_id
 -- ============================================================
 
 -- Drop & re-add the CHECK constraint to add 'interactive' as an allowed
@@ -1198,7 +1198,7 @@ ALTER TABLE messages
   ));
 
 -- Reply id of the button / list row the customer tapped. NULL for
--- everything that isn't an interactive reply. No FK â€” Meta button ids
+-- everything that isn't an interactive reply. No FK — Meta button ids
 -- are arbitrary user-chosen strings, not row references.
 ALTER TABLE messages
   ADD COLUMN IF NOT EXISTS interactive_reply_id TEXT;
@@ -1400,7 +1400,7 @@ CREATE TRIGGER set_updated_at BEFORE UPDATE ON flows
 -- ============================================================
 -- Add flow_runs so the inbox can render "this contact is in flow X at
 -- node Y" live as the runner advances. Other flow tables don't need
--- realtime â€” the builder reads on demand, the runner is server-side.
+-- realtime — the builder reads on demand, the runner is server-side.
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -1439,7 +1439,7 @@ END $$;
 -- out of every beta feature on apply. NOT NULL keeps callers from
 -- having to defend against `beta_features == null` at every site.
 --
--- Idempotent â€” safe to run multiple times.
+-- Idempotent — safe to run multiple times.
 -- ============================================================
 
 ALTER TABLE profiles
@@ -1472,7 +1472,7 @@ ALTER TABLE profiles
 -- starting runs for different contacts in the same second) could both
 -- read N and both write N+1, permanently losing one count.
 --
--- Mirrors migration 007 for automations â€” same shape, same security
+-- Mirrors migration 007 for automations — same shape, same security
 -- posture. Idempotent: safe to re-run.
 -- ============================================================
 
@@ -1508,7 +1508,7 @@ GRANT EXECUTE ON FUNCTION increment_flow_execution_count(UUID) TO service_role;
 -- `.single()` to find the owning config row. If two users have saved
 -- the same `phone_number_id`, `.single()` errors PGRST116 ("multiple
 -- rows returned") and the webhook silently drops every inbound
--- message â€” see issue #136.
+-- message — see issue #136.
 --
 -- wacrm is single-tenant per WhatsApp number by design (RLS on
 -- conversations / messages is `auth.uid() = user_id`, so another user
@@ -1516,10 +1516,10 @@ GRANT EXECUTE ON FUNCTION increment_flow_execution_count(UUID) TO service_role;
 -- A UNIQUE constraint at the DB level makes that intent enforceable
 -- and stops races between the app-level check and the insert.
 --
--- â”€â”€â”€ On existing data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+-- ─── On existing data ───────────────────────────────────────────
 -- If duplicates already exist in production, this migration FAILS
 -- LOUDLY rather than silently dropping rows. Auto-deduping would
--- destroy user data (encrypted tokens, connection state) â€” the
+-- destroy user data (encrypted tokens, connection state) — the
 -- operator has to choose which user keeps the number. To resolve:
 --
 --   SELECT phone_number_id, array_agg(user_id) AS owners
@@ -1530,7 +1530,7 @@ GRANT EXECUTE ON FUNCTION increment_flow_execution_count(UUID) TO service_role;
 -- Then DELETE the duplicate rows you don't want to keep and re-run
 -- migrations.
 --
--- Idempotent â€” safe to run multiple times once the constraint is in
+-- Idempotent — safe to run multiple times once the constraint is in
 -- place.
 -- ============================================================
 
@@ -1564,7 +1564,7 @@ BEGIN
     ) dupe_detail;
 
     RAISE EXCEPTION
-      E'Cannot add UNIQUE(phone_number_id) on whatsapp_config â€” % phone_number_id value(s) are claimed by more than one user:\n  %\nDelete the duplicate rows you do not want to keep (see migration comment), then re-run migrations.',
+      E'Cannot add UNIQUE(phone_number_id) on whatsapp_config — % phone_number_id value(s) are claimed by more than one user:\n  %\nDelete the duplicate rows you do not want to keep (see migration comment), then re-run migrations.',
       conflict_count,
       sample;
   END IF;
@@ -1598,7 +1598,7 @@ END $$;
 --   catalog with a TitleCase status ('Draft'|'Pending'|'Approved'|
 --   'Rejected'). When the sync route imports from Meta, several of
 --   Meta's real statuses (PAUSED, DISABLED, IN_APPEAL, PENDING_REVIEW)
---   got collapsed into the four-bucket TitleCase set â€” losing
+--   got collapsed into the four-bucket TitleCase set — losing
 --   information that the upcoming submit / edit / resubmit flows
 --   need (e.g. a PAUSED template is recoverable; a DISABLED one is
 --   gone for 30 days; an IN_APPEAL one shouldn't be edited).
@@ -1623,10 +1623,10 @@ END $$;
 --   can't create two local rows for the same Meta template variant.
 --
 --   Buttons CHECK enforces a shape guard (array of objects with a
---   recognised `type`) at the DB level â€” strict per-type validation
+--   recognised `type`) at the DB level — strict per-type validation
 --   lives in the API layer so error messages can be specific.
 --
--- Idempotent â€” safe to re-run.
+-- Idempotent — safe to re-run.
 -- ============================================================
 
 -- 1. New columns. ADD COLUMN IF NOT EXISTS is idempotent.
@@ -1640,7 +1640,7 @@ ALTER TABLE message_templates
   ADD COLUMN IF NOT EXISTS submission_error TEXT,
   ADD COLUMN IF NOT EXISTS last_submitted_at TIMESTAMPTZ;
 
--- 2. quality_score CHECK â€” GREEN / YELLOW / RED only (or NULL).
+-- 2. quality_score CHECK — GREEN / YELLOW / RED only (or NULL).
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -1656,7 +1656,7 @@ BEGIN
 END $$;
 
 -- 3. status: swap TitleCase enum for raw Meta enum.
---    Order: drop old check â†’ backfill data â†’ add new check â†’ update default.
+--    Order: drop old check → backfill data → add new check → update default.
 --    Doing it in this order means rows are momentarily check-free, but
 --    the backfill is a single UPDATE so the window is microseconds.
 DO $$
@@ -1682,7 +1682,7 @@ BEGIN
   END IF;
 END $$;
 
--- Backfill existing rows. Idempotent â€” already-uppercase rows are no-ops.
+-- Backfill existing rows. Idempotent — already-uppercase rows are no-ops.
 UPDATE message_templates SET status = 'DRAFT'    WHERE status = 'Draft';
 UPDATE message_templates SET status = 'PENDING'  WHERE status = 'Pending';
 UPDATE message_templates SET status = 'APPROVED' WHERE status = 'Approved';
@@ -1720,7 +1720,7 @@ ALTER TABLE message_templates ALTER COLUMN status SET DEFAULT 'DRAFT';
 --    + max length). Per-element type validation (recognised `type`
 --    values, max counts per type, QUICK_REPLY-vs-CTA exclusivity, URL
 --    example required when {{1}} is present) lives in the API
---    validators in src/lib/whatsapp/template-validators.ts â€” that's
+--    validators in src/lib/whatsapp/template-validators.ts — that's
 --    where error messages can be specific to the offending button
 --    anyway.
 DO $$
@@ -1744,7 +1744,7 @@ BEGIN
 END $$;
 
 -- 5. Unique index on (user_id, name, language). Fails loudly on
---    duplicates rather than dropping rows â€” the operator picks which
+--    duplicates rather than dropping rows — the operator picks which
 --    one to keep (same pattern as migration 013).
 DO $$
 DECLARE
@@ -1774,7 +1774,7 @@ BEGIN
     ) dupe_detail;
 
     RAISE EXCEPTION
-      E'Cannot add UNIQUE(user_id, name, language) on message_templates â€” % duplicate combination(s):\n  %\nDelete the rows you do not want to keep, then re-run migrations.',
+      E'Cannot add UNIQUE(user_id, name, language) on message_templates — % duplicate combination(s):\n  %\nDelete the rows you do not want to keep, then re-run migrations.',
       dupe_count, sample;
   END IF;
 END $$;
@@ -1782,7 +1782,7 @@ END $$;
 CREATE UNIQUE INDEX IF NOT EXISTS message_templates_user_name_language_key
   ON message_templates (user_id, name, language);
 
--- 6. Lookup index for the webhook handler â€” incoming events identify
+-- 6. Lookup index for the webhook handler — incoming events identify
 --    templates by (waba_id, meta_template_id). meta_template_id is the
 --    discriminator we'll match on.
 CREATE INDEX IF NOT EXISTS idx_message_templates_meta_template_id
@@ -1801,10 +1801,10 @@ CREATE INDEX IF NOT EXISTS idx_message_templates_meta_template_id
 --   actually receive webhook events from Meta. Two extra Cloud API
 --   calls are required:
 --
---     POST /{phone_number_id}/register     â€” subscribes the number
+--     POST /{phone_number_id}/register     — subscribes the number
 --                                            with a 2FA PIN, makes
 --                                            it routable to OUR app
---     POST /{waba_id}/subscribed_apps      â€” subscribes the WABA
+--     POST /{waba_id}/subscribed_apps      — subscribes the WABA
 --                                            (one-time per app, but
 --                                            idempotent so we can
 --                                            call on every save)
@@ -1821,11 +1821,11 @@ CREATE INDEX IF NOT EXISTS idx_message_templates_meta_template_id
 --   re-entering everything.
 --
 -- Backfill: every column is nullable. Existing rows survive with
--- NULL values; the UI shows them as "registration status unknown â€”
+-- NULL values; the UI shows them as "registration status unknown —
 -- click Verify Registration" and the diagnostic endpoint fills the
 -- timestamps on the next probe.
 --
--- Idempotent â€” safe to re-run.
+-- Idempotent — safe to re-run.
 -- ============================================================
 
 ALTER TABLE whatsapp_config
@@ -1856,26 +1856,26 @@ CREATE INDEX IF NOT EXISTS idx_whatsapp_config_registered_at
 --
 --   2. `flow-media` Supabase Storage bucket where the builder uploads
 --      the file the customer will receive. Public bucket so Meta can
---      pull the URL without auth â€” same trade-off as the avatars
+--      pull the URL without auth — same trade-off as the avatars
 --      bucket (see migration 008). Per-user RLS on writes scopes the
 --      bucket so one tenant can't read/overwrite another's media.
 --
 --      Path convention:
 --        flow-media/{auth.uid()}/<timestamp>-<basename>.<ext>
---      First path segment must equal auth.uid()::text â€” same shape
+--      First path segment must equal auth.uid()::text — same shape
 --      migration 008 uses for avatars so the policy code reads the
 --      same.
 --
---      Size limit 16 MB â€” Meta's WhatsApp Cloud API caps documents at
+--      Size limit 16 MB — Meta's WhatsApp Cloud API caps documents at
 --      100 MB but videos at 16 MB and images at 5 MB; we pick the
 --      tightest universal cap that still works for the document case
 --      that prompted this feature (PDF invoices / receipts).
 --
--- Idempotent â€” safe to re-run.
+-- Idempotent — safe to re-run.
 -- ============================================================
 
 -- ============================================================
--- 1. flow_nodes.node_type â€” add 'send_media'
+-- 1. flow_nodes.node_type — add 'send_media'
 -- ============================================================
 ALTER TABLE flow_nodes
   DROP CONSTRAINT IF EXISTS flow_nodes_node_type_check;
@@ -1963,7 +1963,7 @@ CREATE POLICY "Users can delete their own flow media"
 -- FILE: 017_account_sharing.sql
 -- ============================================================
 -- ============================================================
--- 017_account_sharing.sql â€” Multi-user accounts (foundation)
+-- 017_account_sharing.sql — Multi-user accounts (foundation)
 --
 -- Turns wacrm from single-tenant-per-user into multi-tenant-per-
 -- account. Every existing user becomes the sole `owner` of a
@@ -1985,7 +1985,7 @@ CREATE POLICY "Users can delete their own flow media"
 --      agents+ may write to operational data; admins+ may write to
 --      settings-class tables.
 --   6. Swaps `whatsapp_config.UNIQUE(user_id)` for
---      `UNIQUE(account_id)` â€” one WhatsApp number per account.
+--      `UNIQUE(account_id)` — one WhatsApp number per account.
 --   7. Swaps the `flow_runs` "one active run per (user_id, contact)"
 --      unique index for `(account_id, contact_id)`.
 --   8. Replaces `handle_new_user` so new signups receive a freshly-
@@ -1994,16 +1994,16 @@ CREATE POLICY "Users can delete their own flow media"
 -- What this migration does NOT touch
 --   - `profiles.role TEXT` (legacy, unused) stays. Flag for removal
 --     in a later cleanup.
---   - The `user_id` columns on domain tables stay too â€” they still
+--   - The `user_id` columns on domain tables stay too — they still
 --     identify "the agent who owns this row" (assignment, audit).
 --     They are *no longer* used for tenancy isolation.
 --   - Storage buckets (avatars, flow-media) stay user-scoped. A
 --     later migration will rescope flow-media to account paths.
---   - No user-facing UI changes â€” those are gated separately on
+--   - No user-facing UI changes — those are gated separately on
 --     `profiles.beta_features` containing 'account_sharing' in the
 --     follow-up PRs.
 --
--- Idempotent â€” safe to run multiple times. New columns use
+-- Idempotent — safe to run multiple times. New columns use
 -- IF NOT EXISTS; policies / triggers / indexes are dropped before
 -- recreate (Postgres has no CREATE POLICY IF NOT EXISTS).
 -- ============================================================
@@ -2032,7 +2032,7 @@ CREATE TABLE IF NOT EXISTS accounts (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- One account per user (the locked design decision â€” single
+-- One account per user (the locked design decision — single
 -- membership). Drops automatically if we ever relax to many-to-many.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_accounts_one_per_owner
   ON accounts(owner_user_id);
@@ -2133,7 +2133,7 @@ GRANT EXECUTE ON FUNCTION is_account_member(UUID, account_role_enum) TO authenti
 -- ============================================================
 -- ADD account_id TO EVERY PARENT TENANT TABLE
 --
--- Nullable for now â€” backfill runs below, then NOT NULL applied at
+-- Nullable for now — backfill runs below, then NOT NULL applied at
 -- the end. Indexes too: every "list mine" query becomes "list my
 -- account's", so account_id is the new hot lookup key.
 -- ============================================================
@@ -2183,9 +2183,9 @@ BEGIN
   -- 001) inserted the profile inside an `EXCEPTION WHEN OTHERS ...
   -- RAISE WARNING; RETURN NEW` block, so a signup could leave an
   -- auth.users row with no matching profiles row. Those orphans would
-  -- be skipped by step (1) below, get no account, and â€” if they own
+  -- be skipped by step (1) below, get no account, and — if they own
   -- any domain rows (pre-017 RLS only required auth.uid() = user_id,
-  -- not a profile) â€” leave account_id NULL and abort the SET NOT NULL
+  -- not a profile) — leave account_id NULL and abort the SET NOT NULL
   -- step. Backfilling the missing profile first keys the whole backfill
   -- off auth.users instead of profiles, so every authenticated user is
   -- migrated and no domain row can be left without an account.
@@ -2219,7 +2219,7 @@ BEGIN
     AND p.account_id IS NULL;
 
   -- (3) Propagate account_id to every domain table. Uses the row's
-  -- existing user_id â†’ profiles.user_id â†’ profiles.account_id chain.
+  -- existing user_id → profiles.user_id → profiles.account_id chain.
   -- Only updates rows where account_id IS NULL so a re-run is cheap.
   FOREACH v_table IN ARRAY v_tables LOOP
     EXECUTE format($f$
@@ -2232,7 +2232,7 @@ BEGIN
   END LOOP;
 END $$;
 
--- (4) NOT NULL â€” split out from the DO block so DDL changes happen
+-- (4) NOT NULL — split out from the DO block so DDL changes happen
 -- at the top transactional level. Idempotent: NOT NULL on an
 -- already-NOT NULL column is a no-op error-free.
 ALTER TABLE profiles                       ALTER COLUMN account_id   SET NOT NULL;
@@ -2254,7 +2254,7 @@ ALTER TABLE flows                          ALTER COLUMN account_id   SET NOT NUL
 ALTER TABLE flow_runs                      ALTER COLUMN account_id   SET NOT NULL;
 
 -- ============================================================
--- INDEXES ON account_id (every parent â€” these are the new hot keys)
+-- INDEXES ON account_id (every parent — these are the new hot keys)
 -- ============================================================
 CREATE INDEX IF NOT EXISTS idx_contacts_account                ON contacts(account_id);
 CREATE INDEX IF NOT EXISTS idx_tags_account                    ON tags(account_id);
@@ -2295,7 +2295,7 @@ END $$;
 -- flow_runs: idempotency key swaps to (account_id, contact_id)
 --
 -- The "at most one active run per contact" invariant is per-account
--- now â€” two accounts that happen to share a contact phone number
+-- now — two accounts that happen to share a contact phone number
 -- must be able to run their own flows independently.
 -- ============================================================
 DROP INDEX IF EXISTS idx_one_active_run_per_contact;
@@ -2304,7 +2304,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_one_active_run_per_contact
   WHERE status = 'active';
 
 -- ============================================================
--- RLS REWRITE â€” PARENT TABLES
+-- RLS REWRITE — PARENT TABLES
 --
 -- Replaces every `auth.uid() = user_id` policy with the membership
 -- check. Three policy tiers:
@@ -2317,8 +2317,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_one_active_run_per_contact
 -- ============================================================
 
 -- Make the RLS rewrite re-runnable. CREATE POLICY has no IF NOT EXISTS
--- form, and the DROP statements below only name the *legacy* policies â€”
--- the new ones (contacts_select, â€¦) would error with 42710 "policy
+-- form, and the DROP statements below only name the *legacy* policies —
+-- the new ones (contacts_select, …) would error with 42710 "policy
 -- already exists" on a second run. 017 owns every policy on these tables
 -- (no later migration adds others), so drop them all first, then the
 -- CREATEs below re-establish the full set.
@@ -2444,7 +2444,7 @@ CREATE POLICY flow_runs_select ON flow_runs FOR SELECT USING (is_account_member(
 -- Service-role driven; no client INSERT/UPDATE/DELETE.
 
 -- ============================================================
--- RLS REWRITE â€” CHILD TABLES (parent-join semantics)
+-- RLS REWRITE — CHILD TABLES (parent-join semantics)
 -- ============================================================
 
 -- ---- contact_tags ----------------------------------------------
@@ -2562,11 +2562,11 @@ CREATE POLICY message_reactions_modify ON message_reactions FOR ALL USING (
 );
 
 -- ============================================================
--- RLS â€” PROFILES (revised)
+-- RLS — PROFILES (revised)
 --
 -- A profile row is readable by every member of its account so the
 -- Members tab can render. It is only writable by the row's own
--- user (so an admin cannot edit a teammate's name/avatar â€” that's
+-- user (so an admin cannot edit a teammate's name/avatar — that's
 -- the teammate's own settings). Role changes happen via the
 -- separate /api/account/members endpoint (admin-only, server-side).
 -- ============================================================
@@ -2582,7 +2582,7 @@ CREATE POLICY profiles_insert ON profiles FOR INSERT
   WITH CHECK (auth.uid() = user_id);
 
 -- ============================================================
--- RLS â€” ACCOUNTS & ACCOUNT_INVITATIONS
+-- RLS — ACCOUNTS & ACCOUNT_INVITATIONS
 --
 -- accounts: members read; admins+ update; nobody inserts via
 -- client (the signup trigger / redeem RPC own creation).
@@ -2607,7 +2607,7 @@ CREATE POLICY account_invitations_modify ON account_invitations FOR ALL
   WITH CHECK (is_account_member(account_id, 'admin'));
 
 -- ============================================================
--- SIGNUP TRIGGER â€” replace to also create a personal account
+-- SIGNUP TRIGGER — replace to also create a personal account
 --
 -- Every new auth.users row now produces:
 --   - a fresh `accounts` row owned by them
@@ -2657,7 +2657,7 @@ CREATE TRIGGER on_auth_user_created
 -- FILE: 018_account_member_rpcs.sql
 -- ============================================================
 -- ============================================================
--- 018_account_member_rpcs.sql â€” RPCs for member management
+-- 018_account_member_rpcs.sql — RPCs for member management
 --
 -- Why RPCs and not direct UPDATEs from the client
 --
@@ -2676,13 +2676,13 @@ CREATE TRIGGER on_auth_user_created
 -- Error contract
 --
 --   All functions raise Postgres exceptions with these SQLSTATEs:
---     42501 ("insufficient_privilege") â€” forbidden
---     22023 ("invalid_parameter_value") â€” bad input / 400
+--     42501 ("insufficient_privilege") — forbidden
+--     22023 ("invalid_parameter_value") — bad input / 400
 --   The `toErrorResponse` helper on the API side maps each to
 --   the right HTTP status, with the RAISE message surfaced to
 --   the caller.
 --
--- Idempotent â€” safe to run multiple times.
+-- Idempotent — safe to run multiple times.
 -- ============================================================
 
 -- ============================================================
@@ -2773,7 +2773,7 @@ GRANT EXECUTE ON FUNCTION public.set_member_role(UUID, account_role_enum) TO aut
 -- remove_account_member(p_user_id)
 --
 -- Admin+ removes another member from the caller's account. The
--- removed user is NOT deleted from auth.users â€” they keep their
+-- removed user is NOT deleted from auth.users — they keep their
 -- login. Instead, a fresh personal account is created on the fly
 -- and their profile is reassigned to it as 'owner'. This is the
 -- mirror image of the signup trigger: the user effectively
@@ -2841,7 +2841,7 @@ BEGIN
   END IF;
 
   -- Spin up a fresh personal account for the removed user. Mirror
-  -- of handle_new_user's logic â€” keep them whole, just relocated.
+  -- of handle_new_user's logic — keep them whole, just relocated.
   INSERT INTO accounts (name, owner_user_id)
   VALUES (
     COALESCE(NULLIF(v_target_name, ''), v_target_email, 'My account'),
@@ -2923,7 +2923,7 @@ BEGIN
   END IF;
 
   -- Demote current owner first so the temporary state where the
-  -- account has zero owners is never visible â€” both writes happen
+  -- account has zero owners is never visible — both writes happen
   -- in the same function transaction.
   UPDATE profiles SET account_role = 'admin'
   WHERE user_id = auth.uid();
@@ -2945,7 +2945,7 @@ GRANT EXECUTE ON FUNCTION public.transfer_account_ownership(UUID) TO authenticat
 -- FILE: 019_invitation_rpcs.sql
 -- ============================================================
 -- ============================================================
--- 019_invitation_rpcs.sql â€” peek + redeem invitation RPCs
+-- 019_invitation_rpcs.sql — peek + redeem invitation RPCs
 --
 -- The third and last server-side migration in the multi-user
 -- accounts series. Both functions are SECURITY DEFINER for the
@@ -2953,19 +2953,19 @@ GRANT EXECUTE ON FUNCTION public.transfer_account_ownership(UUID) TO authenticat
 -- do (or, for peek, the reads) cross RLS boundaries that the
 -- regular client policies (correctly) deny.
 --
--- peek_invitation   â€” anonymous read. The /join/<token> page
+-- peek_invitation   — anonymous read. The /join/<token> page
 --   calls this to render "You're being invited to <Account> as
 --   <Role>" before the visitor signs in. Returns a uniform
 --   `{ ok, reason?, account_name?, role?, expires_at? }` JSON
 --   so the API route doesn't have to interpret error rows.
 --
--- redeem_invitation â€” authenticated. Atomically moves the caller
+-- redeem_invitation — authenticated. Atomically moves the caller
 --   from their just-created personal account to the inviter's
 --   account, cleans up the orphan personal account, and stamps
 --   the invitation accepted. Refuses if the caller's current
 --   account holds any domain data (to avoid silent data loss).
 --
--- Idempotent â€” safe to run multiple times.
+-- Idempotent — safe to run multiple times.
 -- ============================================================
 
 -- ============================================================
@@ -2981,7 +2981,7 @@ GRANT EXECUTE ON FUNCTION public.transfer_account_ownership(UUID) TO authenticat
 --
 -- We could collapse all three failure cases to "not_found" to
 -- harden against enumeration, but the join page needs the
--- distinction for UX ("This invite has expired â€” ask <name>
+-- distinction for UX ("This invite has expired — ask <name>
 -- for a new one"). Tokens carry 256 bits of entropy, so the
 -- enumeration risk is theoretical; rate-limiting the route on
 -- the IP layer adds belt-and-braces.
@@ -3042,9 +3042,9 @@ GRANT EXECUTE ON FUNCTION public.peek_invitation(TEXT) TO anon, authenticated;
 -- check ("do you have any data we'd lose?").
 --
 -- Refusal codes (SQLSTATE):
---   22023 â€” invite invalid (not_found / used / expired)
---   42501 â€” caller not authenticated
---   23505 â€” caller's account has data (would be lost by joining)
+--   22023 — invite invalid (not_found / used / expired)
+--   42501 — caller not authenticated
+--   23505 — caller's account has data (would be lost by joining)
 --           NOTE: we reuse Postgres's "unique_violation" code here
 --           rather than invent a custom SQLSTATE because there's
 --           no proper standard SQLSTATE for "conflict"; the route
@@ -3058,13 +3058,13 @@ GRANT EXECUTE ON FUNCTION public.peek_invitation(TEXT) TO anon, authenticated;
 --      AND that the account has zero domain rows. (If the caller
 --      already joined someone else's account once, their
 --      profile.account_id points there, not to a personal account
---      they own â€” that case fails the "is owner" check and
+--      they own — that case fails the "is owner" check and
 --      surfaces as 23505.)
 --   4. Move profile.account_id + account_role to invite's.
 --   5. Mark invitation accepted (token_hash stays, so the same
 --      token can't be re-used).
 --   6. Delete the old personal account. The ON DELETE CASCADE on
---      `accounts(id) â† profiles.account_id` would normally try to
+--      `accounts(id) ← profiles.account_id` would normally try to
 --      delete the caller's profile too, but step 4 already moved
 --      them to the new account, so the cascade is a no-op.
 -- ============================================================
@@ -3110,7 +3110,7 @@ BEGIN
   WHERE p.user_id = v_caller_id;
 
   IF v_old_account_id IS NULL THEN
-    -- Defensive â€” every authenticated user has a profile post-017.
+    -- Defensive — every authenticated user has a profile post-017.
     RAISE EXCEPTION 'Caller has no profile' USING ERRCODE = '42501';
   END IF;
 
@@ -3135,7 +3135,7 @@ BEGIN
   END IF;
 
   -- Belt: even if they own their account, refuse if it has any
-  -- domain data â€” joining would orphan their contacts, deals,
+  -- domain data — joining would orphan their contacts, deals,
   -- broadcasts, automations, flows, templates, etc.
   SELECT EXISTS (
     SELECT 1 FROM contacts WHERE account_id = v_old_account_id
@@ -3170,7 +3170,7 @@ BEGIN
   WHERE id = v_inv.id;
 
   -- Clean up the orphan personal account. Empty by the checks
-  -- above, so this is purely housekeeping â€” no cascades fire
+  -- above, so this is purely housekeeping — no cascades fire
   -- because no other rows reference it.
   DELETE FROM accounts WHERE id = v_old_account_id;
 
@@ -3187,12 +3187,12 @@ GRANT EXECUTE ON FUNCTION public.redeem_invitation(TEXT) TO authenticated;
 -- FILE: 020_account_sharing_followups.sql
 -- ============================================================
 -- ============================================================
--- 020_account_sharing_followups.sql â€” review-board fixes for
+-- 020_account_sharing_followups.sql — review-board fixes for
 -- the multi-user accounts series (#167-#177).
 --
 -- Two concerns this migration addresses:
 --
---   1. Engine dispatch indexes â€” the per-inbound automations and
+--   1. Engine dispatch indexes — the per-inbound automations and
 --      flows lookups now scope by `account_id + trigger_type/status
 --      + is_active/status='active'`. The pre-017 partial indexes
 --      (`idx_automations_active_trigger`, no flows equivalent) were
@@ -3201,7 +3201,7 @@ GRANT EXECUTE ON FUNCTION public.redeem_invitation(TEXT) TO authenticated;
 --      account_id. Composite partial indexes drop the post-filter
 --      cost to zero on the hot path.
 --
---   2. Flow-media storage scoping â€” migration 016 created the
+--   2. Flow-media storage scoping — migration 016 created the
 --      `flow-media` bucket with per-user RLS policies keyed on
 --      `auth.uid() = path[0]`. After the multi-user move, flows
 --      are account-scoped but the storage paths remained user-
@@ -3213,11 +3213,11 @@ GRANT EXECUTE ON FUNCTION public.redeem_invitation(TEXT) TO authenticated;
 --      uploader for backward compatibility. The bucket is public,
 --      so reads are unchanged.
 --
--- Idempotent â€” safe to run multiple times.
+-- Idempotent — safe to run multiple times.
 -- ============================================================
 
 -- ============================================================
--- COMPOSITE INDEXES â€” engine dispatch hot path
+-- COMPOSITE INDEXES — engine dispatch hot path
 -- ============================================================
 
 -- `runAutomationsForTrigger` queries
@@ -3239,11 +3239,11 @@ CREATE INDEX IF NOT EXISTS idx_flows_account_active
   WHERE status = 'active';
 
 -- ============================================================
--- FLOW-MEDIA STORAGE â€” account-scoped writes
+-- FLOW-MEDIA STORAGE — account-scoped writes
 --
 -- New path convention: `account-<uuid>/<timestamp>-<base>.<ext>`
 -- Legacy path convention: `<uuid>/<timestamp>-<base>.<ext>` (where
--- the uuid is auth.uid() â€” preserved for back-compat).
+-- the uuid is auth.uid() — preserved for back-compat).
 --
 -- Reads stay public (the bucket is public so Meta can fetch media
 -- URLs without credentials). Only the write policies change.
@@ -3318,7 +3318,7 @@ CREATE POLICY "Members can delete flow media"
 --
 -- Make the default deal currency configurable per account.
 --
--- Before this, the app hardcoded USD everywhere â€” deal-value
+-- Before this, the app hardcoded USD everywhere — deal-value
 -- formatters, the new-deal form, and automation-created deals all
 -- assumed USD. wacrm is self-hostable and used globally, so a fixed
 -- USD default made deal tracking unhelpful for non-US businesses
@@ -3327,7 +3327,7 @@ CREATE POLICY "Members can delete flow media"
 -- We add a single `default_currency` column to `accounts`. New deals
 -- and all aggregated totals (pipeline/dashboard) format in this
 -- currency; existing deals keep their own saved `deals.currency`.
--- We enforce one currency per account (no FX conversion) â€” the
+-- We enforce one currency per account (no FX conversion) — the
 -- issue's recommended first pass.
 --
 -- RLS: no change needed. The existing `accounts_update` policy
@@ -3339,7 +3339,7 @@ ALTER TABLE accounts
   ADD COLUMN IF NOT EXISTS default_currency TEXT NOT NULL DEFAULT 'USD';
 
 -- Keep the value an ISO-4217-shaped 3-letter uppercase code without
--- pinning to a fixed enum â€” forks can use any currency Intl supports.
+-- pinning to a fixed enum — forks can use any currency Intl supports.
 ALTER TABLE accounts
   DROP CONSTRAINT IF EXISTS accounts_default_currency_format;
 ALTER TABLE accounts
@@ -3367,16 +3367,16 @@ ALTER TABLE accounts
 --      mirroring the app's normalizePhone) that can never drift;
 --   2. merges existing duplicates into the oldest row, re-pointing
 --      all child records first so nothing is lost;
---   3. adds a UNIQUE index on (account_id, phone_normalized) â€” the
+--   3. adds a UNIQUE index on (account_id, phone_normalized) — the
 --      authoritative guarantee that covers every write path.
 --
--- Idempotent. **No data loss** â€” duplicate rows are merged, not
+-- Idempotent. **No data loss** — duplicate rows are merged, not
 -- dropped: child rows (conversations, messages, deals, notes, tags,
 -- custom values, broadcast recipients, automation/flow records) are
 -- re-pointed to the surviving (oldest) contact before deletion.
 -- ============================================================
 
--- 1) Normalized phone â€” STORED generated column, kept in lockstep
+-- 1) Normalized phone — STORED generated column, kept in lockstep
 --    with `phone` by Postgres. Matches normalizePhone()
 --    (src/lib/whatsapp/phone-utils.ts): strip every non-digit.
 ALTER TABLE contacts
@@ -3446,7 +3446,7 @@ BEGIN
     -- Re-point only NON-active runs (exempt from the partial index)
     -- to preserve history; any active loser run is left to be
     -- NULLed by its FK's ON DELETE SET NULL when the loser is
-    -- removed below â€” avoids colliding with the survivor's active run.
+    -- removed below — avoids colliding with the survivor's active run.
     UPDATE flow_runs SET contact_id = v_survivor
       WHERE contact_id = ANY(v_losers) AND status <> 'active';
 
@@ -3481,7 +3481,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_contacts_account_phone_normalized
 -- Adds the `chat-media` Supabase Storage bucket used when an agent
 -- sends a photo / video / document / voice note from the inbox
 -- composer (issue #213). Today media can only be RECEIVED from
--- customers or sent via the Flows `send_media` node â€” never typed
+-- customers or sent via the Flows `send_media` node — never typed
 -- and sent live in a 1:1 thread.
 --
 -- Mirrors the `flow-media` bucket (migration 016) and its
@@ -3492,7 +3492,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_contacts_account_phone_normalized
 --      retention policy can diverge without touching flows).
 --
 --   2. The allowed MIME list adds the audio types Meta accepts for
---      outbound voice notes â€” audio/ogg (Opus), audio/mpeg, audio/aac,
+--      outbound voice notes — audio/ogg (Opus), audio/mpeg, audio/aac,
 --      audio/mp4, audio/amr. Browser recordings (WebM/Opus) are
 --      transcoded to audio/ogg BEFORE upload, so WebM never lands
 --      here and isn't allow-listed.
@@ -3502,11 +3502,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_contacts_account_phone_normalized
 -- The bucket is public so Meta can fetch the URL without auth; writes
 -- are scoped to account members via the path's first segment.
 --
--- Size limit 16 MB â€” Meta's tightest universal cap (video). Documents
+-- Size limit 16 MB — Meta's tightest universal cap (video). Documents
 -- can technically be 100 MB on Meta, but we hold the universal cap to
 -- match flow-media and keep one limit to reason about.
 --
--- Idempotent â€” safe to re-run.
+-- Idempotent — safe to re-run.
 -- ============================================================
 
 -- ============================================================
@@ -3532,7 +3532,7 @@ VALUES (
     'application/vnd.openxmlformats-officedocument.presentationml.presentation',
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     'text/plain',
-    -- Audio (voice notes) â€” only Meta-accepted outbound types. Browser
+    -- Audio (voice notes) — only Meta-accepted outbound types. Browser
     -- WebM/Opus is transcoded to audio/ogg before upload.
     'audio/ogg',
     'audio/mpeg',
@@ -3548,7 +3548,7 @@ SET
   allowed_mime_types = EXCLUDED.allowed_mime_types;
 
 -- ============================================================
--- 2. Storage RLS â€” account-scoped writes, public reads
+-- 2. Storage RLS — account-scoped writes, public reads
 --
 -- Same predicate shape as migration 020's flow-media policies:
 -- writes are allowed when the path's first segment is
@@ -3603,7 +3603,7 @@ CREATE POLICY "Members can delete chat media"
 -- FILE: 024_member_presence.sql
 -- ============================================================
 -- ============================================================
--- 024_member_presence.sql â€” team member presence (online / away)
+-- 024_member_presence.sql — team member presence (online / away)
 --
 -- Adds a lightweight presence layer so the Team members roster (and
 -- the inbox Assign dropdown) can show who is actively using the
@@ -3613,7 +3613,7 @@ CREATE POLICY "Members can delete chat media"
 --
 --   The active client heartbeats its own row through the
 --   `touch_presence` RPC roughly every 30s, storing only 'online'
---   or 'away'. "Offline" is NOT stored â€” viewers derive it from
+--   or 'away'. "Offline" is NOT stored — viewers derive it from
 --   staleness (`now() - last_seen_at` beyond a threshold), so a
 --   closed tab / logout resolves to offline automatically without
 --   relying on an unreliable unload write.
@@ -3623,12 +3623,12 @@ CREATE POLICY "Members can delete chat media"
 --
 -- Visibility
 --
---   Any account member can read presence for their account â€” the
+--   Any account member can read presence for their account — the
 --   same visibility as the read-only roster (`is_account_member`).
 --   Writes go ONLY through the SECURITY DEFINER RPC, which derives
 --   the account from the caller's profile (never client-supplied).
 --
--- Idempotent â€” safe to run multiple times.
+-- Idempotent — safe to run multiple times.
 -- ============================================================
 
 -- ---- table -------------------------------------------------
@@ -3709,13 +3709,13 @@ END $$;
 -- FILE: 025_filter_contacts_by_tags.sql
 -- ============================================================
 -- ============================================================
--- 025_filter_contacts_by_tags.sql â€” server-side tag filter
+-- 025_filter_contacts_by_tags.sql — server-side tag filter
 --
 -- Why an RPC
 --
 --   The Contacts page filters by tag by resolving the selected
 --   tags to contact ids and paging the result. Doing that on the
---   client (SELECT contact_id FROM contact_tags WHERE tag_id IN â€¦,
+--   client (SELECT contact_id FROM contact_tags WHERE tag_id IN …,
 --   then .in('id', ids) on contacts) hits two PostgREST limits for
 --   accounts where a tag covers many contacts:
 --     - the unbounded contact_tags select is silently capped
@@ -3734,10 +3734,10 @@ END $$;
 --   SECURITY INVOKER (the default): the function runs as the
 --   caller, so the existing RLS on `contacts` and `contact_tags`
 --   (account membership, migration 017) scopes the result to the
---   caller's account. No privilege bypass â€” unlike the SECURITY
+--   caller's account. No privilege bypass — unlike the SECURITY
 --   DEFINER member RPCs in 018/019.
 --
--- Idempotent â€” safe to run multiple times.
+-- Idempotent — safe to run multiple times.
 -- ============================================================
 
 CREATE OR REPLACE FUNCTION public.filter_contacts_by_tags(
@@ -3789,7 +3789,7 @@ GRANT EXECUTE ON FUNCTION public.filter_contacts_by_tags(UUID[], TEXT, INT, INT)
 -- FILE: 026_api_keys.sql
 -- ============================================================
 -- ============================================================
--- 026_api_keys.sql â€” Public API credentials (groundwork)
+-- 026_api_keys.sql — Public API credentials (groundwork)
 --
 -- Adds the `api_keys` table backing the public REST API
 -- (`/api/v1/*`). A key authenticates a *machine* caller (a script,
@@ -3804,7 +3804,7 @@ GRANT EXECUTE ON FUNCTION public.filter_contacts_by_tags(UUID[], TEXT, INT, INT)
 --     delete the keys their automations still depend on.
 --   - We store only the SHA-256 *hash* of the key, never plaintext.
 --     A leaked DB snapshot (backup, log, support export) therefore
---     can't be replayed against the API â€” the caller would need the
+--     can't be replayed against the API — the caller would need the
 --     original key, which is returned exactly once at creation. Same
 --     pattern as `account_invitations.token_hash` (migration 017/019).
 --   - `key_prefix` is a short, non-secret display string
@@ -3812,7 +3812,7 @@ GRANT EXECUTE ON FUNCTION public.filter_contacts_by_tags(UUID[], TEXT, INT, INT)
 --     is this" in a list without ever resurfacing the secret.
 --   - Authorization is by `scopes[]` (scopes-only model), resolved
 --     in the application layer (`src/lib/api-keys/scopes.ts`). The
---     DB doesn't constrain the scope vocabulary â€” a future scope is
+--     DB doesn't constrain the scope vocabulary — a future scope is
 --     a code change, not a migration.
 --
 -- RLS
@@ -3823,7 +3823,7 @@ GRANT EXECUTE ON FUNCTION public.filter_contacts_by_tags(UUID[], TEXT, INT, INT)
 --   client (RLS-bypassing) because an API caller has no Supabase
 --   session and therefore no `auth.uid()` for a policy to match.
 --
--- Idempotent â€” safe to run multiple times. Table uses IF NOT
+-- Idempotent — safe to run multiple times. Table uses IF NOT
 -- EXISTS; policies are dropped before recreate (Postgres has no
 -- CREATE POLICY IF NOT EXISTS).
 -- ============================================================
@@ -3883,7 +3883,7 @@ CREATE POLICY api_keys_delete ON api_keys FOR DELETE
 CREATE TABLE IF NOT EXISTS notifications (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   account_id UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-  -- Recipient â€” the agent this notification is for.
+  -- Recipient — the agent this notification is for.
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   type TEXT NOT NULL DEFAULT 'conversation_assigned'
     CHECK (type IN ('conversation_assigned')),
@@ -3912,7 +3912,7 @@ ALTER TABLE notifications REPLICA IDENTITY FULL;
 ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
 
 -- Recipients can read and mark their own notifications as read.
--- No client INSERT/DELETE policy â€” rows are created exclusively by
+-- No client INSERT/DELETE policy — rows are created exclusively by
 -- the SECURITY DEFINER trigger function below.
 DROP POLICY IF EXISTS notifications_select ON notifications;
 DROP POLICY IF EXISTS notifications_update ON notifications;
@@ -3930,7 +3930,7 @@ REVOKE UPDATE ON notifications FROM authenticated;
 GRANT UPDATE (read_at) ON notifications TO authenticated;
 
 -- ============================================================
--- TRIGGER â€” notify on conversation assignment
+-- TRIGGER — notify on conversation assignment
 -- ============================================================
 CREATE OR REPLACE FUNCTION notify_conversation_assigned()
 RETURNS TRIGGER
@@ -3953,7 +3953,7 @@ BEGIN
     END IF;
   END IF;
 
-  -- Skip self-assignment â€” nothing to notify the agent about.
+  -- Skip self-assignment — nothing to notify the agent about.
   IF auth.uid() IS NOT NULL AND auth.uid() = NEW.assigned_agent_id THEN
     RETURN NEW;
   END IF;
@@ -4014,7 +4014,7 @@ END $$;
 -- FILE: 028_webhook_endpoints.sql
 -- ============================================================
 -- ============================================================
--- 028_webhook_endpoints.sql â€” Outbound event webhooks (public API)
+-- 028_webhook_endpoints.sql — Outbound event webhooks (public API)
 --
 -- Lets an account register HTTPS endpoints that wacrm POSTs to when
 -- something happens (an inbound message arrives, a delivery status
@@ -4031,13 +4031,13 @@ END $$;
 --   - `secret` is the HMAC signing key. UNLIKE `api_keys` (where we
 --     store only a hash because the key is a bearer credential the
 --     *client* presents), here *we* sign each outgoing payload with
---     the secret and the receiver verifies it â€” so we need the
+--     the secret and the receiver verifies it — so we need the
 --     plaintext at delivery time. We store it AES-256-GCM-encrypted
 --     at rest (same `encrypt()`/`decrypt()` as `whatsapp_config.
 --     access_token`), and return the plaintext to the creator exactly
 --     once so they can configure their verifier.
 --   - `events[]` is the subscription filter (free text[], validated
---     in the app layer against `src/lib/webhooks/events.ts` â€” a new
+--     in the app layer against `src/lib/webhooks/events.ts` — a new
 --     event type is a code change, not a migration, mirroring scopes).
 --   - `failure_count` counts *consecutive* delivery failures; the
 --     deliverer auto-sets `is_active = false` once it crosses a
@@ -4051,7 +4051,7 @@ END $$;
 --   client (an API caller has no `auth.uid()`), so RLS is the guard
 --   for any dashboard UI that reads the table directly.
 --
--- Idempotent â€” safe to run multiple times.
+-- Idempotent — safe to run multiple times.
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS webhook_endpoints (
@@ -4100,7 +4100,7 @@ CREATE POLICY webhook_endpoints_delete ON webhook_endpoints FOR DELETE
 -- inbound message), and a client-side `count = count + 1` would lose
 -- increments, so a dead endpoint might never reach the auto-disable
 -- threshold. The `+ 1` and the disable decision happen in one UPDATE.
--- Only ever disables (never re-enables) â€” re-enabling is an explicit
+-- Only ever disables (never re-enables) — re-enabling is an explicit
 -- PATCH by an admin, which resets the counter.
 -- ============================================================
 CREATE OR REPLACE FUNCTION public.record_webhook_failure(
@@ -4122,19 +4122,19 @@ $$ LANGUAGE sql SECURITY DEFINER SET search_path = public;
 -- FILE: 029_ai_reply.sql
 -- ============================================================
 -- ============================================================
--- 029_ai_reply.sql â€” AI reply assistant (bring-your-own-key)
+-- 029_ai_reply.sql — AI reply assistant (bring-your-own-key)
 --
 -- Adds the account-level config for the AI reply assistant plus the
 -- two per-conversation columns the auto-reply bot needs to stay
 -- bounded.
 --
 -- Design notes
---   - `ai_configs` is account-scoped and UNIQUE(account_id) â€” one AI
+--   - `ai_configs` is account-scoped and UNIQUE(account_id) — one AI
 --     setup per workspace, exactly like `whatsapp_config`. Teammates
 --     inside an account share it.
 --   - `api_key` is the caller's own OpenAI / Anthropic key. We call
 --     the provider *with* it on every draft/auto-reply, so we need the
---     plaintext at call time â€” stored AES-256-GCM-encrypted at rest
+--     plaintext at call time — stored AES-256-GCM-encrypted at rest
 --     (same `encrypt()`/`decrypt()` as `whatsapp_config.access_token`
 --     and `webhook_endpoints.secret`) and never returned to the client
 --     after save (the settings UI shows a masked placeholder).
@@ -4146,23 +4146,23 @@ $$ LANGUAGE sql SECURITY DEFINER SET search_path = public;
 --     will answer one thread before going quiet (prevents runaway
 --     loops / bill blowout on a chatty customer).
 --
---   - `conversations.ai_autoreply_disabled` â€” set true when the model
+--   - `conversations.ai_autoreply_disabled` — set true when the model
 --     signals a human handoff, or when someone turns the bot off for
 --     that one thread. Sticky: once a conversation is handed off it
 --     stays off until explicitly re-enabled.
---   - `conversations.ai_reply_count` â€” running count of bot auto-
+--   - `conversations.ai_reply_count` — running count of bot auto-
 --     replies in the thread, checked against
 --     `auto_reply_max_per_conversation`.
 --
 -- RLS
 --   Settings-class, mirroring `whatsapp_config` / `webhook_endpoints`:
---   any member (viewer+) may read the config â€” the inbox draft button
---   needs to know whether AI is on â€” but only admin+ may create /
+--   any member (viewer+) may read the config — the inbox draft button
+--   needs to know whether AI is on — but only admin+ may create /
 --   update / delete it. The auto-reply path runs under the service-role
 --   client (a webhook has no `auth.uid()`), so RLS guards dashboard
 --   reads, not the engine.
 --
--- Idempotent â€” safe to run multiple times.
+-- Idempotent — safe to run multiple times.
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS ai_configs (
@@ -4255,7 +4255,7 @@ $$ LANGUAGE sql SECURITY DEFINER SET search_path = public;
 
 -- The auto-reply bot claims slots under the service-role client (the
 -- inbound webhook has no auth.uid()), so it needs EXECUTE. SECURITY
--- DEFINER alone is not enough â€” it sets the privileges the function runs
+-- DEFINER alone is not enough — it sets the privileges the function runs
 -- *with*, not who may call it. Without this grant the RPC fails with
 -- permission-denied on instances where the default PUBLIC execute
 -- privilege has been revoked (hardened / self-hosted Supabase), and the
@@ -4268,10 +4268,10 @@ GRANT EXECUTE ON FUNCTION public.claim_ai_reply_slot(uuid, integer) TO service_r
 -- FILE: 030_ai_knowledge.sql
 -- ============================================================
 -- ============================================================
--- 030_ai_knowledge.sql â€” AI knowledge base (RAG grounding)
+-- 030_ai_knowledge.sql — AI knowledge base (RAG grounding)
 --
 -- Gives the AI assistant (migration 029) an account-owned knowledge
--- base â€” FAQ / policy / product text â€” that it retrieves into every
+-- base — FAQ / policy / product text — that it retrieves into every
 -- draft and auto-reply, so it can answer business-specific questions
 -- instead of handing off.
 --
@@ -4286,17 +4286,17 @@ GRANT EXECUTE ON FUNCTION public.claim_ai_reply_slot(uuid, integer) TO service_r
 --
 -- pgvector: `CREATE EXTENSION IF NOT EXISTS vector` works on a stock
 -- Postgres. On hosted Supabase the extension usually lives in the
--- `extensions` schema â€” if your project pins that, run
+-- `extensions` schema — if your project pins that, run
 -- `create extension if not exists vector with schema extensions;`
 -- once, then this file is a no-op for the extension.
 --
--- RLS: settings-class, mirroring `ai_configs` / `whatsapp_config` â€”
+-- RLS: settings-class, mirroring `ai_configs` / `whatsapp_config` —
 -- any member may read the knowledge base; only admin+ may change it.
 -- The retrieval RPCs and the ingest path run under the service-role
 -- client (the auto-reply bot has no auth.uid()), so RLS guards
 -- dashboard reads.
 --
--- Idempotent â€” safe to run multiple times.
+-- Idempotent — safe to run multiple times.
 -- ============================================================
 
 CREATE EXTENSION IF NOT EXISTS vector;
@@ -4308,7 +4308,7 @@ ALTER TABLE ai_configs
   ADD COLUMN IF NOT EXISTS embeddings_api_key text;
 
 -- ============================================================
--- Documents â€” one row per KB entry the user pastes (title + body).
+-- Documents — one row per KB entry the user pastes (title + body).
 -- ============================================================
 CREATE TABLE IF NOT EXISTS ai_knowledge_documents (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -4356,7 +4356,7 @@ CREATE TRIGGER ai_knowledge_documents_updated_at
   EXECUTE FUNCTION public.update_ai_knowledge_documents_updated_at();
 
 -- ============================================================
--- Chunks â€” retrieval units. `account_id` is denormalized off the
+-- Chunks — retrieval units. `account_id` is denormalized off the
 -- document so the match RPCs and RLS filter without a join.
 -- ============================================================
 CREATE TABLE IF NOT EXISTS ai_knowledge_chunks (
@@ -4387,7 +4387,7 @@ CREATE INDEX IF NOT EXISTS ai_knowledge_chunks_fts_idx
 -- embedding (lexical-only accounts) are simply absent from it.
 --
 -- HNSW (not IVFFlat): per-account knowledge bases start empty and grow
--- incrementally, and IVFFlat must be trained on existing rows â€” built
+-- incrementally, and IVFFlat must be trained on existing rows — built
 -- against an empty/tiny table its centroids are meaningless and recall
 -- is poor until it's large and REINDEXed. HNSW needs no training and is
 -- accurate from the first row.
@@ -4462,8 +4462,8 @@ RETURNS TABLE (id uuid, content text, distance real) AS $$
 $$ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public;
 
 -- Lock down EXECUTE (mirrors migrations 018 / 025). These are
--- SECURITY DEFINER and would otherwise default to PUBLIC â€” i.e. the
--- anon role â€” which, since the function bypasses RLS and only gates on
+-- SECURITY DEFINER and would otherwise default to PUBLIC — i.e. the
+-- anon role — which, since the function bypasses RLS and only gates on
 -- the passed account_id, would let an unauthenticated caller read any
 -- account's knowledge base. The draft path calls them as `authenticated`
 -- and the auto-reply bot as `service_role`.
@@ -4477,10 +4477,10 @@ GRANT EXECUTE ON FUNCTION public.match_ai_knowledge_semantic(uuid, text, integer
 -- FILE: 031_ai_reply_slot_grant.sql
 -- ============================================================
 -- ============================================================
--- 031_ai_reply_slot_grant.sql â€” fix: AI auto-reply never fires
+-- 031_ai_reply_slot_grant.sql — fix: AI auto-reply never fires
 --
 -- Migration 029 created `claim_ai_reply_slot(uuid, integer)` as a
--- SECURITY DEFINER function but never GRANTed EXECUTE on it â€” the only
+-- SECURITY DEFINER function but never GRANTed EXECUTE on it — the only
 -- function in the schema missing its grant (cf. 007, 012, 018, 019,
 -- 025, 030, which all grant EXECUTE explicitly).
 --
@@ -4492,14 +4492,14 @@ GRANT EXECUTE ON FUNCTION public.match_ai_knowledge_semantic(uuid, text, integer
 -- auto-reply path runs entirely under the service-role client (the
 -- inbound webhook has no auth.uid()), so `db.rpc('claim_ai_reply_slot')`
 -- fails with permission-denied, the caller bails before sending, and the
--- bot silently never answers ANY inbound message â€” while the Playground
+-- bot silently never answers ANY inbound message — while the Playground
 -- (which never claims a slot) keeps working. See issue #345.
 --
--- Only the service role ever claims a slot, so we grant to it alone â€”
+-- Only the service role ever claims a slot, so we grant to it alone —
 -- matching the increment-counter precedent in 007 / 012, and never
 -- exposing a counter-mutating function to end users.
 --
--- Idempotent â€” GRANT is a no-op when the privilege already exists.
+-- Idempotent — GRANT is a no-op when the privilege already exists.
 -- ============================================================
 
 GRANT EXECUTE ON FUNCTION public.claim_ai_reply_slot(uuid, integer) TO service_role;
@@ -4509,7 +4509,7 @@ GRANT EXECUTE ON FUNCTION public.claim_ai_reply_slot(uuid, integer) TO service_r
 -- FILE: 032_fix_ai_knowledge_membership.sql
 -- ============================================================
 -- ============================================================
--- 032_fix_ai_knowledge_membership.sql â€” stop cross-account KB
+-- 032_fix_ai_knowledge_membership.sql — stop cross-account KB
 --                                        reads (GHSA-fg5p-2qc3-jmxr, H2)
 --
 -- The problem
@@ -4529,7 +4529,7 @@ GRANT EXECUTE ON FUNCTION public.claim_ai_reply_slot(uuid, integer) TO service_r
 --
 -- The fix
 --
---   Recreate both functions as SECURITY INVOKER â€” the only change
+--   Recreate both functions as SECURITY INVOKER — the only change
 --   is the security mode; the bodies are byte-for-byte the same.
 --   The existing SELECT policy
 --     ai_knowledge_chunks_select = is_account_member(account_id)
@@ -4540,7 +4540,7 @@ GRANT EXECUTE ON FUNCTION public.claim_ai_reply_slot(uuid, integer) TO service_r
 --   `filter_contacts_by_tags` (migration 025).
 --
 --   The legitimate draft path already passes the caller's *own*
---   accountId (see src/lib/ai/knowledge.ts â†’ retrieveKnowledge),
+--   accountId (see src/lib/ai/knowledge.ts → retrieveKnowledge),
 --   so it keeps returning that account's chunks under RLS.
 --
 -- NOTE FOR MAINTAINER
@@ -4552,8 +4552,8 @@ GRANT EXECUTE ON FUNCTION public.claim_ai_reply_slot(uuid, integer) TO service_r
 --   is_account_member(p_account_id))` to each WHERE clause instead.
 -- ============================================================
 
--- Lexical: full-text rank. Body unchanged from migration 030 â€”
--- only SECURITY DEFINER â†’ SECURITY INVOKER differs.
+-- Lexical: full-text rank. Body unchanged from migration 030 —
+-- only SECURITY DEFINER → SECURITY INVOKER differs.
 CREATE OR REPLACE FUNCTION public.match_ai_knowledge_fts(
   p_account_id  uuid,
   p_query       text,
@@ -4570,8 +4570,8 @@ RETURNS TABLE (id uuid, content text, rank real) AS $$
   LIMIT GREATEST(p_match_count, 0);
 $$ LANGUAGE sql STABLE SECURITY INVOKER SET search_path = public;
 
--- Semantic: cosine distance. Body unchanged from migration 030 â€”
--- only SECURITY DEFINER â†’ SECURITY INVOKER differs.
+-- Semantic: cosine distance. Body unchanged from migration 030 —
+-- only SECURITY DEFINER → SECURITY INVOKER differs.
 CREATE OR REPLACE FUNCTION public.match_ai_knowledge_semantic(
   p_account_id      uuid,
   p_query_embedding text,
@@ -4589,14 +4589,14 @@ RETURNS TABLE (id uuid, content text, distance real) AS $$
 $$ LANGUAGE sql STABLE SECURITY INVOKER SET search_path = public;
 
 -- Re-assert the EXECUTE grants (CREATE OR REPLACE preserves them,
--- but keep them explicit and re-runnable â€” mirrors migration 030).
+-- but keep them explicit and re-runnable — mirrors migration 030).
 REVOKE ALL ON FUNCTION public.match_ai_knowledge_fts(uuid, text, integer) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.match_ai_knowledge_fts(uuid, text, integer) TO authenticated, service_role;
 REVOKE ALL ON FUNCTION public.match_ai_knowledge_semantic(uuid, text, integer) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.match_ai_knowledge_semantic(uuid, text, integer) TO authenticated, service_role;
 
 -- ============================================================
--- Manual validation (run against a live instance â€” no automated
+-- Manual validation (run against a live instance — no automated
 -- SQL test harness exists in this repo):
 --
 --   1. As a non-member JWT, calling either RPC with a foreign
@@ -4614,28 +4614,28 @@ GRANT EXECUTE ON FUNCTION public.match_ai_knowledge_semantic(uuid, text, integer
 -- FILE: 033_ai_reply_polish.sql
 -- ============================================================
 -- ============================================================
--- 033_ai_reply_polish.sql â€” AI reply assistant polish
+-- 033_ai_reply_polish.sql — AI reply assistant polish
 --
 -- Follow-ups to 029_ai_reply / 030_ai_knowledge that make the
 -- auto-reply bot visible and controllable from the inbox, complete the
 -- handoff, and record token spend:
 --
---   1. messages.ai_generated       â€” marks a reply the bot sent (vs a
+--   1. messages.ai_generated       — marks a reply the bot sent (vs a
 --                                     deterministic Flow/bot send), so
 --                                     the inbox can badge it "AI".
---   2. ai_configs.handoff_agent_id â€” where a handed-off conversation is
+--   2. ai_configs.handoff_agent_id — where a handed-off conversation is
 --                                     routed. NULL = leave unassigned
 --                                     (drop into the shared queue).
 --   3. conversations.ai_handoff_summary
---                                  â€” a short internal note the bot writes
+--                                  — a short internal note the bot writes
 --                                    when it hands off, surfaced to the
 --                                    agent who takes over.
---   4. ai_usage_log                â€” per-run provider token usage, for
+--   4. ai_usage_log                — per-run provider token usage, for
 --                                    cost visibility on the account's BYO
 --                                    key. Written by the service role from
 --                                    the draft route + auto-reply bot.
 --
--- Idempotent â€” safe to run multiple times.
+-- Idempotent — safe to run multiple times.
 -- ============================================================
 
 -- ============================================================
@@ -4674,7 +4674,7 @@ CREATE TABLE IF NOT EXISTS ai_usage_log (
   id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   account_id        uuid NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
   conversation_id   uuid REFERENCES conversations(id) ON DELETE SET NULL,
-  -- 'auto_reply' | 'draft' â€” which surface spent the tokens.
+  -- 'auto_reply' | 'draft' — which surface spent the tokens.
   mode              text NOT NULL CHECK (mode IN ('auto_reply', 'draft')),
   provider          text NOT NULL CHECK (provider IN ('openai', 'anthropic')),
   model             text NOT NULL,
@@ -4685,7 +4685,7 @@ CREATE TABLE IF NOT EXISTS ai_usage_log (
 );
 
 -- Account-scoped, newest-first reads (usage dashboards, "spend this
--- month") â€” the only access pattern.
+-- month") — the only access pattern.
 CREATE INDEX IF NOT EXISTS idx_ai_usage_log_account_created
   ON ai_usage_log(account_id, created_at DESC);
 
@@ -4705,10 +4705,10 @@ CREATE POLICY ai_usage_log_select ON ai_usage_log FOR SELECT
 -- FILE: 034_fix_profiles_update_rls.sql
 -- ============================================================
 -- ============================================================
--- 034_fix_profiles_update_rls.sql â€” lock down privilege columns
+-- 034_fix_profiles_update_rls.sql — lock down privilege columns
 --                                    on profiles (GHSA-fg5p-2qc3-jmxr, C1)
 --
--- NOTE: renamed from 031 â†’ 034 to resolve a duplicate migration version.
+-- NOTE: renamed from 031 → 034 to resolve a duplicate migration version.
 -- The 031 slot was already taken by 031_ai_reply_slot_grant.sql (#345),
 -- so shipping this as 031 too made a clean `supabase db` apply fail with
 -- a duplicate schema_migrations key (SQLSTATE 23505). This migration is
@@ -4718,7 +4718,7 @@ CREATE POLICY ai_usage_log_select ON ai_usage_log FOR SELECT
 -- The problem
 --
 --   The `profiles_update` RLS policy from migration 017 gates on
---   `auth.uid() = user_id` only â€” it lets a user edit their *own*
+--   `auth.uid() = user_id` only — it lets a user edit their *own*
 --   row, which is correct for self-service fields (full_name,
 --   avatar). But `account_role` and `account_id` also live on
 --   `profiles`, and they are the source of truth for
@@ -4787,7 +4787,7 @@ CREATE TRIGGER enforce_profile_privilege_columns
   FOR EACH ROW EXECUTE FUNCTION public.enforce_profile_privilege_columns();
 
 -- ============================================================
--- Manual validation (run against a live instance â€” no automated
+-- Manual validation (run against a live instance — no automated
 -- SQL test harness exists in this repo):
 --
 --   1. As a viewer/member JWT via PostgREST, both of these must
@@ -4799,7 +4799,7 @@ CREATE TRIGGER enforce_profile_privilege_columns
 --        PATCH /rest/v1/profiles?user_id=eq.<self> { "full_name": "New Name" }
 --   3. The member/invitation RPCs (set_member_role,
 --      transfer_account_ownership, redeem_invitation) must still
---      succeed â€” they run SECURITY DEFINER as postgres.
+--      succeed — they run SECURITY DEFINER as postgres.
 -- ============================================================
 
 
@@ -4812,14 +4812,14 @@ CREATE TRIGGER enforce_profile_privilege_columns
 -- Full support for WhatsApp interactive messages (reply buttons +
 -- list messages) beyond the Flows subsystem.
 --
---   1. messages.interactive_payload â€” the structured payload of an
+--   1. messages.interactive_payload — the structured payload of an
 --      OUTBOUND interactive message (buttons / list) so it round-trips:
 --      the thread can re-render the buttons/rows we sent, not just the
 --      body text. Migration 010 already added 'interactive' to the
 --      content_type CHECK and the inbound `interactive_reply_id`
 --      column, so no CHECK change is needed here.
 --
---   2. quick_replies â€” reusable snippets (plain text OR a saved
+--   2. quick_replies — reusable snippets (plain text OR a saved
 --      interactive message) an agent can insert from the inbox
 --      composer. Account-scoped, same tenancy model as automations.
 -- ============================================================
@@ -4833,7 +4833,7 @@ CREATE TABLE IF NOT EXISTS quick_replies (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   -- Tenancy. Every member of the account shares its quick replies.
   account_id UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-  -- Author / audit only â€” never used for tenancy isolation.
+  -- Author / audit only — never used for tenancy isolation.
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   title TEXT NOT NULL,
   -- 'text' snippets carry `content_text`; 'interactive' snippets carry
@@ -4886,23 +4886,23 @@ CREATE TRIGGER set_updated_at BEFORE UPDATE ON quick_replies
 --
 --   1. A race (Meta retries a delivery, or a batch delivers two
 --      messages that fan out to concurrent `after()` runs) let two
---      inserts both miss the lookup and create two conversations â€”
+--      inserts both miss the lookup and create two conversations —
 --      unlike contacts (migration 022) there was no unique index and
 --      no unique-violation backstop.
---   2. Once â‰¥2 conversations existed for a contact, the `.single()`
+--   2. Once ≥2 conversations existed for a contact, the `.single()`
 --      lookup errored on *every* subsequent inbound message, so the
 --      code fell through and created yet another conversation each
---      time â€” the duplication snowballed, which is what the reporter
+--      time — the duplication snowballed, which is what the reporter
 --      saw (a wall of duplicate chats for one number).
 --
 -- This migration mirrors 022_contact_phone_dedup:
 --   1. merges existing duplicate conversations into the oldest row,
 --      re-pointing every conversation-scoped child first so nothing
 --      is lost;
---   2. adds a UNIQUE index on (account_id, contact_id) â€” the
+--   2. adds a UNIQUE index on (account_id, contact_id) — the
 --      authoritative guarantee that covers every write path.
 --
--- Idempotent. **No data loss** â€” duplicate conversations are merged,
+-- Idempotent. **No data loss** — duplicate conversations are merged,
 -- not dropped: child rows (messages, message_reactions, deals,
 -- flow_runs, notifications, ai_usage_log) are re-pointed to the
 -- surviving (oldest) conversation before the losers are deleted.
@@ -4940,7 +4940,7 @@ BEGIN
 
     -- Re-point every conversation-scoped child from the losers onto
     -- the survivor. None of these carry a conversation-scoped unique
-    -- constraint (message_id is intentionally non-unique â€” see
+    -- constraint (message_id is intentionally non-unique — see
     -- migration 009), so a plain UPDATE is safe. Doing this BEFORE the
     -- delete is what saves the ON DELETE CASCADE children (messages,
     -- message_reactions, notifications) from being removed with the
@@ -5027,16 +5027,16 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_conversations_account_contact
 --         function runs both inserts in one transaction, so a
 --         recipient failure rolls the parent back.
 --
--- Idempotent â€” safe to re-run.
+-- Idempotent — safe to re-run.
 -- ============================================================
 
 -- ============================================================
--- #367 â€” inbound webhook idempotency
+-- #367 — inbound webhook idempotency
 --
 -- The Meta message id is unique per receiving number, and a given
 -- (account, contact) always resolves to the same conversation
 -- (guaranteed by migration 036), so (conversation_id, message_id)
--- is the correct idempotency key â€” `message_id` alone is NOT
+-- is the correct idempotency key — `message_id` alone is NOT
 -- globally unique across phone numbers (see migration 009).
 --
 -- A plain (non-partial) unique index is used deliberately so
@@ -5046,7 +5046,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_conversations_account_contact
 -- index, so they never collide with each other.
 -- ============================================================
 
--- Collapse pre-existing duplicates (keep the earliest row per key â€”
+-- Collapse pre-existing duplicates (keep the earliest row per key —
 -- it's the one whose downstream side effects already ran) so the
 -- unique index can be created. Only rows with a non-NULL message_id
 -- can collide. reply_to_message_id is ON DELETE SET NULL (migration
@@ -5069,7 +5069,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_conversation_message_id
   ON messages (conversation_id, message_id);
 
 -- ============================================================
--- #369 â€” atomic unread-count increment on inbound
+-- #369 — atomic unread-count increment on inbound
 --
 -- Replaces the webhook's read-modify-write. The increment happens
 -- entirely inside the UPDATE so concurrent inbound deliveries for
@@ -5102,7 +5102,7 @@ REVOKE ALL ON FUNCTION public.bump_conversation_on_inbound(UUID, TEXT) FROM auth
 GRANT EXECUTE ON FUNCTION public.bump_conversation_on_inbound(UUID, TEXT) TO service_role;
 
 -- ============================================================
--- #370 â€” atomic broadcast creation
+-- #370 — atomic broadcast creation
 --
 -- Inserts the parent `broadcasts` row and all `broadcast_recipients`
 -- rows in a single transaction (a function body is atomic), then
@@ -5110,7 +5110,7 @@ GRANT EXECUTE ON FUNCTION public.bump_conversation_on_inbound(UUID, TEXT) TO ser
 -- the recipient insert fails, the parent insert rolls back and no
 -- orphaned `sending` broadcast survives.
 --
--- Per-status count columns are intentionally NOT seeded â€” they're
+-- Per-status count columns are intentionally NOT seeded — they're
 -- owned by the aggregate trigger (migrations 003/005), same as the
 -- previous application-side insert.
 -- ============================================================
@@ -5167,13 +5167,13 @@ GRANT EXECUTE ON FUNCTION public.create_broadcast_with_recipients(UUID, UUID, TE
 --
 -- Issue #472. A dashboard campaign's send loop runs in the browser tab
 -- that started it. Close the tab and the remaining recipients are
--- stranded 'pending' while the broadcast sits in 'sending' forever â€”
+-- stranded 'pending' while the broadcast sits in 'sending' forever —
 -- the "no campaign status is updated" half of that report. The
 -- reporter also asked for a way to reprocess pending and failed
 -- recipients. All three need delivery to be resumable server-side,
 -- which needs two things the schema didn't record:
 --
---   1. broadcast_recipients.template_params â€” the per-recipient
+--   1. broadcast_recipients.template_params — the per-recipient
 --      variable values. The wizard resolved them in the browser at
 --      send time and never persisted them, so a later resume had no
 --      way to reconstruct what {{1}} should be for each contact.
@@ -5181,12 +5181,12 @@ GRANT EXECUTE ON FUNCTION public.create_broadcast_with_recipients(UUID, UUID, TE
 --      what the original pass would have, not a re-resolution against
 --      contact data that may have changed since.
 --
---   2. broadcasts.delivery_locked_at â€” a mutex. Resume is a button.
+--   2. broadcasts.delivery_locked_at — a mutex. Resume is a button.
 --      Two clicks, or a click while another pass is still fanning out,
 --      would message people twice, and a WhatsApp message cannot be
 --      recalled.
 --
--- Idempotent â€” safe to re-run.
+-- Idempotent — safe to re-run.
 -- ============================================================
 
 -- ============================================================
@@ -5202,7 +5202,7 @@ COMMENT ON COLUMN broadcast_recipients.template_params IS
 -- 2. Delivery mutex
 --
 -- Claimed with a conditional UPDATE (`WHERE delivery_locked_at IS NULL
--- OR delivery_locked_at < cutoff`), which is atomic in one statement â€”
+-- OR delivery_locked_at < cutoff`), which is atomic in one statement —
 -- the loser's WHERE simply doesn't match. A lock older than the
 -- staleness window is treated as abandoned, which is what recovers a
 -- pass whose process died mid-fan-out.
@@ -5218,7 +5218,7 @@ CREATE INDEX IF NOT EXISTS idx_broadcast_recipients_broadcast_status
   ON broadcast_recipients(broadcast_id, status);
 
 -- ============================================================
--- 3. create_broadcast_with_recipients â€” carry params through
+-- 3. create_broadcast_with_recipients — carry params through
 --
 -- Dropped rather than CREATE OR REPLACE'd: adding a parameter makes a
 -- new overload, and a DEFAULT on it would leave the 7-argument call
@@ -5258,7 +5258,7 @@ BEGIN
 
   -- Two-array unnest pairs each contact with its params positionally.
   -- A shorter params array pads with NULL, which the resume path reads
-  -- as "no params" â€” the same as a pre-038 row.
+  -- as "no params" — the same as a pre-038 row.
   RETURN QUERY
   WITH ins AS (
     INSERT INTO broadcast_recipients (
@@ -5286,8 +5286,8 @@ GRANT EXECUTE ON FUNCTION public.create_broadcast_with_recipients(UUID, UUID, TE
 -- 039_inbound_media_mirror
 --
 -- Issue #466. Inbound media is never persisted. The webhook verifies
--- the Meta media id and stores a POINTER â€” `/api/whatsapp/media/<id>`
--- â€” and that route re-streams the bytes from Meta on every view. Meta
+-- the Meta media id and stores a POINTER — `/api/whatsapp/media/<id>`
+-- — and that route re-streams the bytes from Meta on every view. Meta
 -- deletes media roughly 30 days after receipt, so every inbound photo,
 -- voice note and document silently rots into "Photo unavailable". No
 -- amount of UI can recover it; the bytes are simply gone.
@@ -5298,13 +5298,13 @@ GRANT EXECUTE ON FUNCTION public.create_broadcast_with_recipients(UUID, UUID, TE
 --
 -- Three changes:
 --
---   1. `messages.media_type` â€” the MIME type the webhook has always
+--   1. `messages.media_type` — the MIME type the webhook has always
 --      had in hand and always discarded (`void mediaType` in
 --      `webhook/route.ts`). Without it, a download has to guess the
 --      file extension from the fetched blob, which only works once
 --      the bytes have already been fetched successfully.
 --
---   2. `whatsapp_config.mirror_inbound_media` â€” the per-account
+--   2. `whatsapp_config.mirror_inbound_media` — the per-account
 --      opt-OUT. Mirroring every inbound attachment is unbounded
 --      storage growth on a self-hosted Supabase project, so it has to
 --      be switchable. It defaults to TRUE because the thing being
@@ -5313,7 +5313,7 @@ GRANT EXECUTE ON FUNCTION public.create_broadcast_with_recipients(UUID, UUID, TE
 --      one that keeps losing them.
 --
 --   3. Widens the `chat-media` MIME allow-list with the types Meta can
---      hand us on the way IN but that we never send out â€” animated
+--      hand us on the way IN but that we never send out — animated
 --      GIFs, bare Opus, QuickTime video, and Meta's own `video/3gp`
 --      spelling of `video/3gpp`. The bucket's allow-list is enforced
 --      by Storage for the service role too, so without this an
@@ -5328,7 +5328,7 @@ GRANT EXECUTE ON FUNCTION public.create_broadcast_with_recipients(UUID, UUID, TE
 -- decryptable by the app. Existing rows keep their proxy URL and the
 -- proxy route keeps serving them for as long as Meta still has them.
 --
--- Idempotent â€” safe to re-run.
+-- Idempotent — safe to re-run.
 -- ============================================================
 
 -- ============================================================
@@ -5389,7 +5389,7 @@ VALUES (
     'application/vnd.openxmlformats-officedocument.presentationml.presentation',
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     'text/plain',
-    -- Audio (voice notes) â€” outbound is transcoded to audio/ogg first
+    -- Audio (voice notes) — outbound is transcoded to audio/ogg first
     'audio/ogg',
     'audio/mpeg',
     'audio/aac',
@@ -5418,14 +5418,14 @@ SET
 --
 -- Meta assigns every WhatsApp user a BSUID that is unique within one
 -- business portfolio, and once a user adopts a username the message
--- webhook stops carrying their phone number at all â€” `messages[].from`
+-- webhook stops carrying their phone number at all — `messages[].from`
 -- and `contacts[].wa_id` are both omitted, and only
 -- `messages[].from_user_id` / `contacts[].user_id` identify the sender.
 --
 -- Before this migration those senders had no key to be found under.
 -- `contacts.phone` resolved to '' for them, and the unique index from
 -- migration 022 is partial (`WHERE phone_normalized <> ''`), so nothing
--- stopped a brand-new contact â€” and with it a brand-new conversation â€”
+-- stopped a brand-new contact — and with it a brand-new conversation —
 -- being inserted for every inbound message from the same person.
 --
 -- `phone` deliberately stays NOT NULL. A BSUID-only contact stores ''
@@ -5433,7 +5433,7 @@ SET
 -- which keeps `Contact.phone` a plain `string` in the app. The new
 -- partial unique index below is what guarantees one row per BSUID.
 --
--- Idempotent. Additive only â€” no existing row is modified and no
+-- Idempotent. Additive only — no existing row is modified and no
 -- existing constraint changes.
 -- ============================================================
 
@@ -5447,9 +5447,9 @@ COMMENT ON COLUMN contacts.wa_user_id IS
 COMMENT ON COLUMN contacts.wa_parent_user_id IS
   'Portfolio-level BSUID (e.g. "US.ENT.11815799212886844830"). Stored for reference; not used as a lookup key.';
 COMMENT ON COLUMN contacts.wa_username IS
-  'WhatsApp username, without the leading @. Display only â€” usernames are user-changeable and must never be used as an identity key.';
+  'WhatsApp username, without the leading @. Display only — usernames are user-changeable and must never be used as an identity key.';
 
--- One contact per BSUID per account â€” the same guarantee migration 022
+-- One contact per BSUID per account — the same guarantee migration 022
 -- gave phone numbers. Partial so the millions of rows that will never
 -- have a BSUID stay out of the index.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_contacts_account_wa_user_id
@@ -5461,7 +5461,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_contacts_account_wa_user_id
 -- FILE: 041_fix_broadcast_contact_id_ambiguity.sql
 -- ============================================================
 -- ============================================================
--- 041_fix_broadcast_contact_id_ambiguity.sql â€” make
+-- 041_fix_broadcast_contact_id_ambiguity.sql — make
 --     create_broadcast_with_recipients executable
 --
 -- The problem
@@ -5478,8 +5478,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_contacts_account_wa_user_id
 --   variable. The recipient INSERT ends in a bare
 --   `RETURNING id, contact_id`, so that `contact_id` resolves against
 --   both the target table's column and the function's own output
---   variable, and Postgres refuses to guess. Qualifying it â€”
---   `broadcast_recipients.contact_id` â€” names the column and nothing
+--   variable, and Postgres refuses to guess. Qualifying it —
+--   `broadcast_recipients.contact_id` — names the column and nothing
 --   else. That one word is the entire fix.
 --
 --   The other identifiers in the body are already unambiguous:
@@ -5488,7 +5488,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_contacts_account_wa_user_id
 --
 -- Why nothing caught it
 --
---   A plpgsql body is only parsed at CREATE time â€” name resolution
+--   A plpgsql body is only parsed at CREATE time — name resolution
 --   happens on first EXECUTION. The migration applies cleanly, so both
 --   a fresh `supabase db reset` and CI go green on a function that
 --   cannot run. Worth considering a smoke test that CALLS the RPCs the
@@ -5508,14 +5508,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_contacts_account_wa_user_id
 -- Why a new file rather than an edit to 038
 --
 --   Applied migrations are recorded in `schema_migrations`, so editing
---   038 in place would fix only fresh installs â€” every existing
+--   038 in place would fix only fresh installs — every existing
 --   deployment already has 038 recorded and would keep the broken
 --   function forever. Same reasoning, and the same shape, as
 --   034_fix_profiles_update_rls.sql repairing 017's policy.
 --
 --   This is a CREATE OR REPLACE of the exact 038 signature, so it is
 --   idempotent and safe to re-run. Signature, arguments and result
---   columns are unchanged â€” broadcast-core.ts needs no edit.
+--   columns are unchanged — broadcast-core.ts needs no edit.
 -- ============================================================
 
 CREATE OR REPLACE FUNCTION public.create_broadcast_with_recipients(
@@ -5548,7 +5548,7 @@ BEGIN
 
   -- Two-array unnest pairs each contact with its params positionally.
   -- A shorter params array pads with NULL, which the resume path reads
-  -- as "no params" â€” the same as a pre-038 row.
+  -- as "no params" — the same as a pre-038 row.
   RETURN QUERY
   WITH ins AS (
     INSERT INTO broadcast_recipients (
@@ -5580,7 +5580,7 @@ GRANT EXECUTE ON FUNCTION public.create_broadcast_with_recipients(UUID, UUID, TE
 -- 042_message_failure_reason
 --
 -- Issue #535. When Meta cannot deliver an outbound message it posts a
--- `failed` status webhook whose `errors[0]` carries the reason â€” a
+-- `failed` status webhook whose `errors[0]` carries the reason — a
 -- stable numeric `code` (131049 "per-user marketing limit", 131026
 -- "undeliverable", 131047 "re-engagement window closed", ...), a short
 -- `title`, and a human-readable `error_data.details`. The webhook
@@ -5590,7 +5590,7 @@ GRANT EXECUTE ON FUNCTION public.create_broadcast_with_recipients(UUID, UUID, TE
 --
 -- Two changes:
 --
---   1. `messages.error_code` / `error_title` / `error_details` â€” the
+--   1. `messages.error_code` / `error_title` / `error_details` — the
 --      three pieces Meta sends, stored separately so the code stays
 --      filterable and the details stay readable. All nullable: they are
 --      only populated on a `failed` status and are deliberately NOT
@@ -5608,7 +5608,7 @@ GRANT EXECUTE ON FUNCTION public.create_broadcast_with_recipients(UUID, UUID, TE
 -- No backfill is possible: the failure payloads that were already
 -- received were discarded at the door.
 --
--- Idempotent â€” safe to re-run.
+-- Idempotent — safe to re-run.
 -- ============================================================
 
 ALTER TABLE messages
@@ -5631,3 +5631,381 @@ COMMENT ON COLUMN messages.error_details IS
 
 
 
+
+
+-- ============================================================
+-- FILE: 043_activities.sql
+-- ============================================================
+-- ============================================================
+-- 043_activities.sql — Activities / tasks / reminders
+--
+-- The scheduling backbone for the CRM's "never miss a follow-up"
+-- promise. One row per thing a user plans to do for (or about) a
+-- contact: a call, a WhatsApp message, an email, a meeting, a generic
+-- task, or a bare reminder. Rows with a `reminder_config` are picked up
+-- by the scheduler cron (/api/cron/scheduler) at `remind_at` and turned
+-- into an outbound WhatsApp template and/or email to the owning member,
+-- plus an in-app notification.
+--
+-- Conventions mirror 006/017: IF NOT EXISTS everywhere, account_id is
+-- the tenancy key, RLS via is_account_member() exactly like the deals
+-- block (select = member, write = agent+). Idempotent — safe to re-run.
+-- ============================================================
+
+-- ------------------------------------------------------------
+-- accounts.timezone — the account's display timezone (IANA name,
+-- e.g. "America/New_York"). NULL = treat as UTC / browser-local.
+-- Scheduling itself never depends on this (every instant is stored
+-- as an absolute TIMESTAMPTZ); it only groups "today" in the
+-- Activities view and dashboard widget by the account's calendar day.
+-- ------------------------------------------------------------
+ALTER TABLE accounts
+  ADD COLUMN IF NOT EXISTS timezone TEXT;
+
+COMMENT ON COLUMN accounts.timezone IS
+  'IANA timezone name for grouping activities/metrics by the account''s '
+  'calendar day. NULL = UTC/browser-local. Does not affect when scheduled '
+  'work fires — that is driven purely by absolute TIMESTAMPTZ instants.';
+
+-- ============================================================
+-- ACTIVITIES
+--
+-- `type`            — what kind of activity (call / whatsapp_message /
+--                     email / task / meeting / reminder).
+-- `due_at`          — when the activity is scheduled to happen.
+-- `remind_at`       — when the reminder should fire (defaults to due_at
+--                     client-side). NULL = never auto-remind.
+-- `reminder_config` — optional delivery spec; see docs/activities-and-
+--                     scheduling-design.md §2. NULL = this is a plain
+--                     to-do with no auto-send.
+-- `reminder_fired_at` — set by the scheduler when it delivered (or
+--                     attempted) the reminder. Doubles as the claim/idempotency
+--                     guard: the cron claims a row with a conditional UPDATE
+--                     `... WHERE reminder_fired_at IS NULL`.
+-- `reminder_error`  — last delivery error, surfaced in the UI.
+-- status            — pending → done | cancelled; the scheduler flips a
+--                     past-due pending row to 'overdue' so the UI and
+--                     dashboard can surface it without a client-side clock.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS activities (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  account_id UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  -- Links are all nullable + SET NULL so an activity's history survives
+  -- the deletion of the contact / conversation / deal it referenced
+  -- (mirrors migration 004's pattern on deals / broadcast_recipients).
+  contact_id UUID REFERENCES contacts(id) ON DELETE SET NULL,
+  conversation_id UUID REFERENCES conversations(id) ON DELETE SET NULL,
+  deal_id UUID REFERENCES deals(id) ON DELETE SET NULL,
+  assigned_to UUID REFERENCES profiles(id) ON DELETE SET NULL,
+  type TEXT NOT NULL DEFAULT 'task'
+    CHECK (type IN ('call', 'whatsapp_message', 'email', 'task', 'meeting', 'reminder')),
+  title TEXT NOT NULL,
+  notes TEXT,
+  due_at TIMESTAMPTZ NOT NULL,
+  remind_at TIMESTAMPTZ,
+  status TEXT NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending', 'done', 'cancelled', 'overdue')),
+  reminder_config JSONB,
+  reminder_fired_at TIMESTAMPTZ,
+  reminder_error TEXT,
+  completed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Dashboard "today" + Activities list order by due_at within an account.
+CREATE INDEX IF NOT EXISTS idx_activities_account_due
+  ON activities(account_id, due_at);
+-- Status filters (Today / Upcoming / Overdue / Done segments).
+CREATE INDEX IF NOT EXISTS idx_activities_account_status
+  ON activities(account_id, status);
+-- Contact timeline (inbox sidebar section).
+CREATE INDEX IF NOT EXISTS idx_activities_contact
+  ON activities(contact_id) WHERE contact_id IS NOT NULL;
+-- Scheduler hot path: unfired reminders that are due. Partial index keeps
+-- it tiny — only rows the cron could possibly act on.
+CREATE INDEX IF NOT EXISTS idx_activities_due_reminder
+  ON activities(remind_at)
+  WHERE status = 'pending'
+    AND reminder_fired_at IS NULL
+    AND reminder_config IS NOT NULL;
+
+ALTER TABLE activities ENABLE ROW LEVEL SECURITY;
+
+-- RLS mirrors the deals block exactly: any member can read; agent+ writes.
+DROP POLICY IF EXISTS activities_select ON activities;
+CREATE POLICY activities_select ON activities FOR SELECT
+  USING (is_account_member(account_id));
+DROP POLICY IF EXISTS activities_insert ON activities;
+CREATE POLICY activities_insert ON activities FOR INSERT
+  WITH CHECK (is_account_member(account_id, 'agent'));
+DROP POLICY IF EXISTS activities_update ON activities;
+CREATE POLICY activities_update ON activities FOR UPDATE
+  USING (is_account_member(account_id, 'agent'));
+DROP POLICY IF EXISTS activities_delete ON activities;
+CREATE POLICY activities_delete ON activities FOR DELETE
+  USING (is_account_member(account_id, 'agent'));
+
+DROP TRIGGER IF EXISTS set_updated_at ON activities;
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON activities
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================================
+-- notifications.type — allow the scheduler to drop a 'reminder' row.
+--
+-- The 027 CHECK only permitted 'conversation_assigned'. The reminder
+-- scheduler (service-role) inserts a notifications row when it fires a
+-- reminder so it surfaces in the bell. Broaden the constraint to admit
+-- 'reminder'. Rebuilt by name introspection since the 027 constraint
+-- name is deterministic (notifications_type_check).
+-- ============================================================
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'notifications_type_check'
+      AND conrelid = 'notifications'::regclass
+  ) THEN
+    ALTER TABLE notifications DROP CONSTRAINT notifications_type_check;
+  END IF;
+  ALTER TABLE notifications
+    ADD CONSTRAINT notifications_type_check
+    CHECK (type IN ('conversation_assigned', 'reminder'));
+END $$;
+
+-- ============================================================
+-- FILE: 044_email_templates.sql
+-- ============================================================
+-- ============================================================
+-- 044_email_templates.sql — Email templates + per-account reminder prefs
+--
+-- Two tables:
+--   email_templates   — reusable email bodies (subject + HTML/text),
+--                        with {{placeholder}} interpolation at send time.
+--                        Managed under Settings → Email templates.
+--   reminder_settings — one row per account holding the member's default
+--                        reminder channels: which WhatsApp template to
+--                        send, which email template to use, and where to
+--                        send them (member WhatsApp number + email).
+--                        Per-activity reminder_config (migration 043)
+--                        overrides these defaults when present.
+--
+-- Idempotent — safe to re-run. account_id tenancy + is_account_member
+-- RLS, same shape as the settings-class tables in 017.
+-- ============================================================
+
+-- ============================================================
+-- EMAIL_TEMPLATES
+-- ============================================================
+CREATE TABLE IF NOT EXISTS email_templates (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  account_id UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  subject TEXT NOT NULL,
+  body_html TEXT NOT NULL,
+  body_text TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- One template name per account (so pickers and the reminder default
+-- reference are unambiguous).
+CREATE UNIQUE INDEX IF NOT EXISTS idx_email_templates_account_name
+  ON email_templates(account_id, lower(name));
+
+ALTER TABLE email_templates ENABLE ROW LEVEL SECURITY;
+
+-- Settings-class, but templates are used by agents composing reminders,
+-- so writes are agent+ (consistent with activities, not admin-only like
+-- WhatsApp templates which touch the Meta integration).
+DROP POLICY IF EXISTS email_templates_select ON email_templates;
+CREATE POLICY email_templates_select ON email_templates FOR SELECT
+  USING (is_account_member(account_id));
+DROP POLICY IF EXISTS email_templates_insert ON email_templates;
+CREATE POLICY email_templates_insert ON email_templates FOR INSERT
+  WITH CHECK (is_account_member(account_id, 'agent'));
+DROP POLICY IF EXISTS email_templates_update ON email_templates;
+CREATE POLICY email_templates_update ON email_templates FOR UPDATE
+  USING (is_account_member(account_id, 'agent'));
+DROP POLICY IF EXISTS email_templates_delete ON email_templates;
+CREATE POLICY email_templates_delete ON email_templates FOR DELETE
+  USING (is_account_member(account_id, 'agent'));
+
+DROP TRIGGER IF EXISTS set_updated_at ON email_templates;
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON email_templates
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================================
+-- REMINDER_SETTINGS — one row per account (PK = account_id).
+-- ============================================================
+CREATE TABLE IF NOT EXISTS reminder_settings (
+  account_id UUID PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+  -- Default WhatsApp template (name + language) fired for reminders.
+  default_whatsapp_template TEXT,
+  default_whatsapp_language TEXT DEFAULT 'en_US',
+  -- Default email template to render for reminders.
+  default_email_template_id UUID REFERENCES email_templates(id) ON DELETE SET NULL,
+  -- Where reminders are delivered — the member/agent's own channels.
+  notify_whatsapp_number TEXT,
+  notify_email TEXT,
+  -- Master switches so an account can keep config but pause delivery.
+  whatsapp_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  email_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE reminder_settings ENABLE ROW LEVEL SECURITY;
+
+-- Settings-class: readable by any member, writable by admin+ (it carries
+-- account-wide delivery config, same tier as whatsapp_config).
+DROP POLICY IF EXISTS reminder_settings_select ON reminder_settings;
+CREATE POLICY reminder_settings_select ON reminder_settings FOR SELECT
+  USING (is_account_member(account_id));
+DROP POLICY IF EXISTS reminder_settings_insert ON reminder_settings;
+CREATE POLICY reminder_settings_insert ON reminder_settings FOR INSERT
+  WITH CHECK (is_account_member(account_id, 'admin'));
+DROP POLICY IF EXISTS reminder_settings_update ON reminder_settings;
+CREATE POLICY reminder_settings_update ON reminder_settings FOR UPDATE
+  USING (is_account_member(account_id, 'admin'));
+DROP POLICY IF EXISTS reminder_settings_delete ON reminder_settings;
+CREATE POLICY reminder_settings_delete ON reminder_settings FOR DELETE
+  USING (is_account_member(account_id, 'admin'));
+
+DROP TRIGGER IF EXISTS set_updated_at ON reminder_settings;
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON reminder_settings
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================================
+-- FILE: 045_scheduled_broadcast.sql
+-- ============================================================
+-- ============================================================
+-- 045_scheduled_broadcast.sql — activate scheduled broadcasts
+--
+-- `broadcasts.scheduled_at` and the status value 'scheduled' have
+-- existed since migration 001 but were never written or read by any
+-- code. The scheduled-broadcast feature wires them up:
+--
+--   - A user schedules a draft → recipient rows are materialized with
+--     frozen template_params (so the cron can send with no browser
+--     context), status flips to 'scheduled', scheduled_at is set.
+--   - /api/cron/scheduler selects broadcasts where status='scheduled'
+--     AND scheduled_at <= now(), claims the delivery lock, and delivers.
+--
+-- No new columns are needed (scheduled_at + delivery_locked_at from 038
+-- cover it). This migration only adds the partial index the cron's due
+-- selection relies on.
+--
+-- Idempotent — safe to re-run.
+-- ============================================================
+
+CREATE INDEX IF NOT EXISTS idx_broadcasts_scheduled_due
+  ON broadcasts(scheduled_at)
+  WHERE status = 'scheduled';
+
+-- ============================================================
+-- FILE: 046_reminder_lead_time_and_channel_tracking.sql
+-- ============================================================
+-- ============================================================
+-- 046_reminder_lead_time_and_channel_tracking.sql
+--
+-- Three additions driven by the reminder/activity UX pass:
+--
+--   1. reminder_settings.lead_time_minutes — how far BEFORE an
+--      activity's due time its reminder should fire (e.g. 25 = "remind
+--      me 25 minutes before"). 0 = at due time. The inbox composer and
+--      the scheduler use this to compute remind_at = due_at - lead_time.
+--
+--   2. activities.reminder_whatsapp_sent_at / reminder_email_sent_at —
+--      per-channel delivery timestamps so the Activities UI can show
+--      "WhatsApp reminder sent at …" / "Email reminder sent at …" on the
+--      row. The single reminder_fired_at (migration 043) is the claim
+--      guard; these two record which channels actually went out.
+--
+--   3. (bugfix enabler) nothing schema-side — the overdue-sweep lockout
+--      is fixed in application code (scheduler.ts) by processing due
+--      reminders for BOTH pending and overdue activities before the
+--      sweep runs.
+--
+-- Idempotent — safe to re-run.
+-- ============================================================
+
+ALTER TABLE reminder_settings
+  ADD COLUMN IF NOT EXISTS lead_time_minutes INTEGER NOT NULL DEFAULT 0;
+
+COMMENT ON COLUMN reminder_settings.lead_time_minutes IS
+  'Minutes before an activity''s due time to fire its reminder. 0 = at due time. '
+  'Applied when the activity opts into reminders without an explicit remind_at.';
+
+ALTER TABLE activities
+  ADD COLUMN IF NOT EXISTS reminder_whatsapp_sent_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS reminder_email_sent_at TIMESTAMPTZ;
+
+COMMENT ON COLUMN activities.reminder_whatsapp_sent_at IS
+  'When the WhatsApp reminder for this activity was successfully sent. NULL otherwise.';
+COMMENT ON COLUMN activities.reminder_email_sent_at IS
+  'When the email reminder for this activity was successfully sent. NULL otherwise.';
+
+-- Broaden the scheduler''s hot-path index to include overdue activities,
+-- since the fixed drain now also considers status='overdue' rows whose
+-- reminder has not yet fired (the lockout bugfix).
+DROP INDEX IF EXISTS idx_activities_due_reminder;
+CREATE INDEX IF NOT EXISTS idx_activities_due_reminder
+  ON activities(remind_at)
+  WHERE status IN ('pending', 'overdue')
+    AND reminder_fired_at IS NULL
+    AND reminder_config IS NOT NULL;
+
+-- ============================================================
+-- FILE: 047_reminder_multi_leadtime_and_varmap.sql
+-- ============================================================
+-- ============================================================
+-- 047_reminder_multi_leadtime_and_varmap.sql
+--
+-- Reminder UX v3:
+--
+--   1. reminder_settings.lead_times_minutes INT[] — multiple lead times
+--      so one activity fires several reminders (e.g. 1 day, 1 hour, and
+--      15 min before). Supersedes the single lead_time_minutes (046),
+--      which is kept and backfilled into the array for compatibility.
+--
+--   2. reminder_settings.whatsapp_variable_map JSONB — maps each WhatsApp
+--      template positional variable ({{1}}, {{2}}, …) to a source
+--      ("lead_name" | "custom:<id>" | "tag_list" | …) plus a default
+--      fallback value. Shape: { "1": { "source": "...", "default": "..." }, … }.
+--
+--   3. activities.reminder_fired_offsets JSONB — the set of lead-time
+--      offsets (in minutes) whose reminder has already fired for this
+--      activity, so each configured offset fires exactly once. Default
+--      '[]'. The legacy reminder_fired_at (043) remains as the "0-offset
+--      fired / fully done" marker for older rows.
+--
+-- Idempotent — safe to re-run.
+-- ============================================================
+
+ALTER TABLE reminder_settings
+  ADD COLUMN IF NOT EXISTS lead_times_minutes INTEGER[] NOT NULL DEFAULT ARRAY[0],
+  ADD COLUMN IF NOT EXISTS whatsapp_variable_map JSONB NOT NULL DEFAULT '{}'::jsonb;
+
+COMMENT ON COLUMN reminder_settings.lead_times_minutes IS
+  'Lead times (minutes before due) at which a reminder fires. Each value '
+  'produces one reminder. [0] = only at due time. Supersedes lead_time_minutes.';
+COMMENT ON COLUMN reminder_settings.whatsapp_variable_map IS
+  'Maps WhatsApp template positional variables to a source + default. '
+  'Shape: {"1":{"source":"lead_name","default":""}, ...}.';
+
+-- Backfill the array from the single-value column where the array is
+-- still at its default and a non-zero single lead time was set.
+UPDATE reminder_settings
+SET lead_times_minutes = ARRAY[lead_time_minutes]
+WHERE lead_time_minutes IS NOT NULL
+  AND lead_time_minutes <> 0
+  AND lead_times_minutes = ARRAY[0];
+
+ALTER TABLE activities
+  ADD COLUMN IF NOT EXISTS reminder_fired_offsets JSONB NOT NULL DEFAULT '[]'::jsonb;
+
+COMMENT ON COLUMN activities.reminder_fired_offsets IS
+  'Lead-time offsets (minutes) whose reminder has already fired for this '
+  'activity, so each configured offset fires exactly once.';

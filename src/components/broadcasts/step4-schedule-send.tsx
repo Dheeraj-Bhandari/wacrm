@@ -14,7 +14,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
-import { ArrowLeft, Send, Loader2, Users, Save } from 'lucide-react';
+import { ArrowLeft, Send, Loader2, Users, Save, CalendarClock } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 interface AudienceConfig {
@@ -30,9 +30,21 @@ interface Step4Props {
   audience: AudienceConfig;
   onSend: () => void;
   onSaveDraft?: () => void;
+  /** Called with an absolute ISO instant when the user schedules. */
+  onSchedule?: (scheduledAtIso: string) => void;
   onBack: () => void;
   isProcessing: boolean;
   progress: number;
+}
+
+/** Default the schedule picker to one hour out, local wall time. */
+function defaultScheduleLocal(): string {
+  const d = new Date(Date.now() + 60 * 60 * 1000);
+  d.setMinutes(0, 0, 0);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(
+    d.getHours(),
+  )}:${pad(d.getMinutes())}`;
 }
 
 export function Step4ScheduleSend({
@@ -42,6 +54,7 @@ export function Step4ScheduleSend({
   audience,
   onSend,
   onSaveDraft,
+  onSchedule,
   onBack,
   isProcessing,
   progress,
@@ -50,6 +63,8 @@ export function Step4ScheduleSend({
   const [showConfirm, setShowConfirm] = useState(false);
   const [estimatedReach, setEstimatedReach] = useState<number>(0);
   const [loadingReach, setLoadingReach] = useState(true);
+  const [scheduleMode, setScheduleMode] = useState(false);
+  const [scheduleAt, setScheduleAt] = useState(defaultScheduleLocal);
 
   useEffect(() => {
     async function calculateReach() {
@@ -163,6 +178,35 @@ export function Step4ScheduleSend({
         </div>
       )}
 
+      {/* Schedule-for-later */}
+      {onSchedule && (
+        <div className="rounded-xl border border-border bg-card/50 p-4">
+          <label className="flex items-center gap-2 text-sm font-medium text-foreground">
+            <input
+              type="checkbox"
+              checked={scheduleMode}
+              onChange={(e) => setScheduleMode(e.target.checked)}
+              disabled={isProcessing}
+              className="h-4 w-4 accent-[var(--primary)]"
+            />
+            <CalendarClock className="h-4 w-4 text-primary" />
+            {t('scheduleSend.scheduleToggle')}
+          </label>
+          {scheduleMode && (
+            <div className="mt-3 space-y-2">
+              <input
+                type="datetime-local"
+                value={scheduleAt}
+                onChange={(e) => setScheduleAt(e.target.value)}
+                disabled={isProcessing}
+                className="h-9 w-full rounded-lg border border-border bg-muted px-2.5 text-sm text-foreground outline-none focus:border-primary"
+              />
+              <p className="text-xs text-muted-foreground">{t('scheduleSend.scheduleHint')}</p>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-4">
         <Button
           variant="outline"
@@ -175,7 +219,7 @@ export function Step4ScheduleSend({
         </Button>
 
         <div className="flex items-center gap-2">
-          {onSaveDraft && (
+          {onSaveDraft && !scheduleMode && (
             <Button
               variant="outline"
               onClick={onSaveDraft}
@@ -187,6 +231,21 @@ export function Step4ScheduleSend({
             </Button>
           )}
 
+          {scheduleMode ? (
+            <Button
+              onClick={() => {
+                // datetime-local is local wall time; convert to an
+                // absolute instant before handing to the server.
+                const iso = new Date(scheduleAt).toISOString();
+                onSchedule?.(iso);
+              }}
+              disabled={!name.trim() || !scheduleAt || isProcessing}
+              className="bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            >
+              <CalendarClock className="h-4 w-4" />
+              {t('scheduleSend.scheduleButton')}
+            </Button>
+          ) : (
           <Dialog open={showConfirm} onOpenChange={setShowConfirm}>
           <DialogTrigger
             render={
@@ -233,6 +292,7 @@ export function Step4ScheduleSend({
             </DialogFooter>
           </DialogContent>
         </Dialog>
+          )}
         </div>
       </div>
     </div>

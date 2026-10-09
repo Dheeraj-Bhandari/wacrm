@@ -8,6 +8,11 @@ import {
   validateStepsForActivation,
   validateTriggerForActivation,
 } from '@/lib/automations/validate'
+import {
+  documentToBuilderSteps,
+  validateAutomationDocument,
+  type AutomationDocument,
+} from '@/lib/automations/document'
 
 export async function GET() {
   const supabase = await createClient()
@@ -59,7 +64,7 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => null)
   if (!body) return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
 
-  const { name, description, trigger_type, trigger_config, is_active, steps, template } = body
+  const { name, description, trigger_type, trigger_config, is_active, steps, template, document } = body
 
   let effectiveSteps: BuilderStepInput[] | undefined = steps
   let effectiveName = name
@@ -67,7 +72,26 @@ export async function POST(request: Request) {
   let effectiveTriggerType = trigger_type
   let effectiveTriggerConfig = trigger_config
 
-  if (template && (!steps || steps.length === 0)) {
+  // Import from a pasted AutomationDocument. Validated structurally
+  // (not activation-level — a draft import can be incomplete); the
+  // activation gate below still applies when is_active is requested.
+  if (document) {
+    const issues = validateAutomationDocument(document, false)
+    if (issues.length > 0) {
+      return NextResponse.json(
+        { error: 'Invalid automation document', issues },
+        { status: 400 },
+      )
+    }
+    const doc = document as AutomationDocument
+    effectiveName = effectiveName ?? doc.name
+    effectiveDescription = effectiveDescription ?? doc.description ?? null
+    effectiveTriggerType = effectiveTriggerType ?? doc.trigger.type
+    effectiveTriggerConfig = effectiveTriggerConfig ?? doc.trigger.config ?? {}
+    effectiveSteps = documentToBuilderSteps(doc.steps)
+  }
+
+  if (template && (!effectiveSteps || effectiveSteps.length === 0)) {
     const t = getTemplate(template)
     if (t) {
       effectiveName = effectiveName ?? t.name

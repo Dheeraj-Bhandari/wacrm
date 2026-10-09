@@ -7,10 +7,19 @@ import type { Conversation, Contact, Tag } from "@/types";
  * flattens them onto `contact.tags`.
  */
 export const CONVERSATION_SELECT =
-  "*, contact:contacts(*, contact_tags(tags(*)))";
+  "*, contact:contacts(*, contact_tags(tags(*)), deals(stage_id, status))";
+
+/** A contact's deals as embedded for the stage filter — minimal shape. */
+export interface ContactDealRef {
+  stage_id: string | null;
+  status: string | null;
+}
 
 /** Raw shape returned by {@link CONVERSATION_SELECT} before flattening. */
-type RawContact = Contact & { contact_tags?: { tags: Tag | null }[] };
+type RawContact = Contact & {
+  contact_tags?: { tags: Tag | null }[];
+  deals?: ContactDealRef[];
+};
 type RawConversation = Omit<Conversation, "contact"> & {
   contact?: RawContact | null;
 };
@@ -24,7 +33,7 @@ export function normalizeConversation(raw: RawConversation): Conversation {
   const rawContact = raw.contact;
   if (!rawContact) return raw as Conversation;
 
-  const { contact_tags, ...contact } = rawContact;
+  const { contact_tags, deals, ...contact } = rawContact;
   return {
     ...raw,
     contact: {
@@ -32,6 +41,7 @@ export function normalizeConversation(raw: RawConversation): Conversation {
       tags: (contact_tags ?? [])
         .map((ct) => ct.tags)
         .filter((t): t is Tag => t != null),
+      deals: deals ?? [],
     },
   };
 }
@@ -47,16 +57,21 @@ export interface ContactFilters {
   tagIds: string[];
   /** Exact company match, or null for no company filter. */
   company: string | null;
+  /** Pipeline stage id; a conversation matches if the contact has a deal in
+   *  that stage. null = no stage filter. */
+  stageId?: string | null;
 }
 
 /**
  * Whether a conversation passes the contact-based Inbox filters (issue #272).
- * Empty `tagIds` and null `company` are no-ops, so the default (no filters)
- * always matches. Tags use OR logic, consistent with Broadcast audiences.
+ * Empty `tagIds`, null `company`, and null `stageId` are no-ops, so the
+ * default (no filters) always matches. Tags use OR logic, consistent with
+ * Broadcast audiences; stage matches when the contact has ANY deal in the
+ * selected stage.
  */
 export function matchesContactFilters(
   conversation: Conversation,
-  { tagIds, company }: ContactFilters,
+  { tagIds, company, stageId }: ContactFilters,
 ): boolean {
   if (tagIds.length > 0) {
     const contactTagIds = conversation.contact?.tags ?? [];
@@ -65,6 +80,11 @@ export function matchesContactFilters(
 
   if (company !== null && conversation.contact?.company?.trim() !== company) {
     return false;
+  }
+
+  if (stageId != null) {
+    const deals = conversation.contact?.deals ?? [];
+    if (!deals.some((d) => d.stage_id === stageId)) return false;
   }
 
   return true;

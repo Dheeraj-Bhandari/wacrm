@@ -98,6 +98,43 @@ describe("matchesContactFilters", () => {
       matchesContactFilters(conv, { tagIds: ["tX"], company: "Acme" }),
     ).toBe(false);
   });
+
+  it("matches by pipeline stage via the contact's deals", () => {
+    const conv = makeConversation({
+      deals: [
+        { stage_id: "s1", status: "open" },
+        { stage_id: "s2", status: "won" },
+      ],
+    });
+    expect(
+      matchesContactFilters(conv, { tagIds: [], company: null, stageId: "s2" }),
+    ).toBe(true);
+    expect(
+      matchesContactFilters(conv, { tagIds: [], company: null, stageId: "s9" }),
+    ).toBe(false);
+  });
+
+  it("excludes a contact with no deals when a stage filter is active", () => {
+    const conv = makeConversation({ deals: [] });
+    expect(
+      matchesContactFilters(conv, { tagIds: [], company: null, stageId: "s1" }),
+    ).toBe(false);
+    expect(
+      matchesContactFilters(makeConversation(null), {
+        tagIds: [],
+        company: null,
+        stageId: "s1",
+      }),
+    ).toBe(false);
+  });
+
+  it("ignores the stage facet when stageId is null/undefined", () => {
+    const conv = makeConversation({ deals: [] });
+    expect(
+      matchesContactFilters(conv, { tagIds: [], company: null, stageId: null }),
+    ).toBe(true);
+    expect(matchesContactFilters(conv, { tagIds: [], company: null })).toBe(true);
+  });
 });
 
 describe("normalizeConversation", () => {
@@ -126,6 +163,29 @@ describe("normalizeConversation", () => {
     expect(
       (normalized.contact as unknown as Record<string, unknown>).contact_tags,
     ).toBeUndefined();
+  });
+
+  it("flattens embedded deals onto contact.deals and drops the raw key", () => {
+    const raw = {
+      id: "c1",
+      user_id: "u1",
+      contact_id: "ct1",
+      status: "open" as const,
+      unread_count: 0,
+      created_at: "",
+      updated_at: "",
+      contact: {
+        id: "ct1",
+        user_id: "u1",
+        account_id: "a1",
+        phone: "123",
+        created_at: "",
+        updated_at: "",
+        deals: [{ stage_id: "s1", status: "open" }],
+      },
+    };
+    const normalized = normalizeConversation(raw);
+    expect(normalized.contact?.deals).toEqual([{ stage_id: "s1", status: "open" }]);
   });
 
   it("passes through a conversation with no contact", () => {

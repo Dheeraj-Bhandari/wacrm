@@ -34,6 +34,7 @@ import {
   Trash2,
   PlayCircle,
   RotateCcw,
+  X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -163,6 +164,8 @@ export default function BroadcastDetailPage() {
   const [resumingScope, setResumingScope] = useState<
     'pending' | 'failed' | null
   >(null);
+  const [starting, setStarting] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
@@ -278,6 +281,49 @@ export default function BroadcastDetailPage() {
     }
   }
 
+  // Send a draft or scheduled broadcast immediately, server-side.
+  async function handleStartNow() {
+    setStarting(true);
+    try {
+      const res = await fetch(`/api/whatsapp/broadcast/${broadcastId}/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(payload?.error || `HTTP ${res.status}`);
+        return;
+      }
+      toast.success(t('toastStarted', { count: payload.sending ?? 0 }));
+      await fetchData();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Unknown error');
+    } finally {
+      setStarting(false);
+    }
+  }
+
+  // Cancel a scheduled broadcast — drop recipients, revert to draft.
+  async function handleCancelSchedule() {
+    setCancelling(true);
+    try {
+      const res = await fetch(`/api/whatsapp/broadcast/${broadcastId}/schedule`, {
+        method: 'DELETE',
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(payload?.error || `HTTP ${res.status}`);
+        return;
+      }
+      toast.success(t('toastScheduleCancelled'));
+      await fetchData();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Unknown error');
+    } finally {
+      setCancelling(false);
+    }
+  }
+
   async function handleDelete() {
     setDeleting(true);
     const supabase = createClient();
@@ -318,6 +364,8 @@ export default function BroadcastDetailPage() {
   }
 
   const status = getBroadcastStatus(broadcast.status);
+  const isDraft = broadcast.status === 'draft';
+  const isScheduled = broadcast.status === 'scheduled';
 
   const pendingCount = recipients.filter((r) => r.status === 'pending').length;
   const retryableCount = recipients.filter((r) => r.status === 'failed').length;
@@ -408,6 +456,50 @@ export default function BroadcastDetailPage() {
           </Button>
         )}
       </div>
+
+      {/* Draft / scheduled controls — send now, or cancel a schedule. */}
+      {(isDraft || isScheduled) && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card p-4">
+          <div className="text-sm">
+            <p className="font-medium text-foreground">
+              {isScheduled ? t('scheduledTitle') : t('draftTitle')}
+            </p>
+            <p className="mt-0.5 text-muted-foreground">
+              {isScheduled && broadcast.scheduled_at
+                ? t('scheduledHint', {
+                    when: new Date(broadcast.scheduled_at).toLocaleString(),
+                  })
+                : t('draftHint')}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button size="sm" onClick={handleStartNow} disabled={starting || cancelling}>
+              {starting ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Send className="h-3.5 w-3.5" />
+              )}
+              {t('sendNow')}
+            </Button>
+            {isScheduled && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleCancelSchedule}
+                disabled={starting || cancelling}
+                className="border-border text-muted-foreground hover:bg-muted"
+              >
+                {cancelling ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <X className="h-3.5 w-3.5" />
+                )}
+                {t('cancelSchedule')}
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Resume / retry (issue #472). Only rendered when there is
           actually something outstanding. */}

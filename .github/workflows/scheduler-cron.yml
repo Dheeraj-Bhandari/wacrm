@@ -1,0 +1,54 @@
+name: Scheduler cron
+
+# Pings the deployed scheduler endpoint on a schedule so activity
+# reminders fire and scheduled broadcasts send without anyone running
+# curl by hand. This is the deployment-independent path: it works no
+# matter where the app is hosted (Cloudflare Workers, Vercel, a VPS),
+# because the ping comes from GitHub's infrastructure, not the app's.
+#
+# Self-hosters running `next start` / Docker can instead set
+# CRON_IN_PROCESS=true and skip this workflow entirely — the server
+# then pings itself in-process (see src/lib/cron/in-process-runner.ts).
+#
+# Required repository secrets (Settings → Secrets and variables →
+# Actions):
+#   SCHEDULER_URL          Full URL of the endpoint, e.g.
+#                          https://crm.example.com/api/cron/scheduler
+#   AUTOMATION_CRON_SECRET Same value as the server's env var.
+#
+# GitHub's shortest cron granularity is 5 minutes, and scheduled runs
+# are best-effort (they can be delayed under load). If you need
+# tighter-than-5-min punctuality, use a dedicated cron service or the
+# in-process runner instead.
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  # Allow a manual run from the Actions tab for testing.
+  workflow_dispatch:
+
+concurrency:
+  group: scheduler-cron
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    name: Ping the scheduler
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hit /api/cron/scheduler
+        env:
+          SCHEDULER_URL: ${{ secrets.SCHEDULER_URL }}
+          CRON_SECRET: ${{ secrets.AUTOMATION_CRON_SECRET }}
+        run: |
+          if [ -z "$SCHEDULER_URL" ] || [ -z "$CRON_SECRET" ]; then
+            echo "::error::SCHEDULER_URL and AUTOMATION_CRON_SECRET repo secrets must be set."
+            exit 1
+          fi
+          # -f fails the step on any HTTP >= 400 so a broken secret or a
+          # down deployment shows up as a red run, not a silent success.
+          curl -fsS -X GET \
+            -H "x-cron-secret: $CRON_SECRET" \
+            "$SCHEDULER_URL"
+          echo
+          echo "Scheduler pinged."

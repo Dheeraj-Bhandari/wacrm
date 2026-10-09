@@ -1,0 +1,52 @@
+name: wacrm
+
+# ============================================================
+# Production compose for EC2.
+#
+# Unlike docker-compose.yml (which BUILDS from source), this file PULLS
+# a prebuilt image from Docker Hub. The NEXT_PUBLIC_* values are baked
+# into that image at build time by CI, so they do NOT appear here —
+# only runtime secrets are injected via env_file (.env.prod on the host).
+#
+# The image tag is injected via the IMAGE variable so the deploy
+# workflow can roll out a specific immutable tag each release:
+#
+#   IMAGE=codewithme898/neuraltalk.ai:prod_09_OCT_2026-ab12cd3 \
+#     docker compose -f docker-compose.prod.yml --env-file .env.prod pull
+#   IMAGE=... docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
+#
+# IMAGE_DEFAULT below is only a fallback for a manual `up` with no IMAGE
+# set — the CI always passes an explicit immutable tag.
+# ============================================================
+
+services:
+  app:
+    image: ${IMAGE:-codewithme898/neuraltalk.ai:prod}
+    pull_policy: always
+    # Runtime (server-only) secrets come from .env.prod on the host.
+    env_file:
+      - .env.prod
+    # The server always listens on 3000 inside the container. Pinned
+    # here because `environment` wins over `env_file`, so a stray PORT
+    # in .env.prod can't desync the app from the mapping / healthcheck.
+    environment:
+      PORT: 3000
+    # Publish on the host. Behind a reverse proxy (Caddy/nginx) keep
+    # this bound to localhost so the app isn't reachable except through
+    # the proxy: set HOST_BIND=127.0.0.1 in .env.prod. Default exposes
+    # it on all interfaces for a quick test.
+    ports:
+      - '${HOST_BIND:-0.0.0.0}:${HOST_PORT:-3000}:3000'
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://localhost:3000').then((r)=>process.exit(r.ok||r.status<500?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s

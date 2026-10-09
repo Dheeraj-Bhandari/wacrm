@@ -21,12 +21,16 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { format } from "date-fns";
 import { useTranslations } from "next-intl";
 import { contactHandle } from "@/lib/whatsapp/wa-identity";
+import { ContactPipeline } from "./contact-pipeline";
+import { ContactActivities } from "./contact-activities";
+import type { Conversation } from "@/types";
 
 interface ContactSidebarProps {
   contact: Contact | null;
+  conversation?: Conversation | null;
 }
 
-export function ContactSidebar({ contact }: ContactSidebarProps) {
+export function ContactSidebar({ contact, conversation }: ContactSidebarProps) {
   const tSidebar = useTranslations("Inbox.sidebar");
   const tThread = useTranslations("Inbox.messageThread");
 
@@ -256,6 +260,18 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
               )}
             </div>
           </div>
+
+          {/* Divider */}
+          <div className="my-4 border-t border-border" />
+
+          {/* Pipeline — set the contact's stage inline */}
+          <ContactPipeline contact={contact} conversation={conversation} />
+
+          {/* Divider */}
+          <div className="my-4 border-t border-border" />
+
+          {/* Activities — schedule calls, messages, tasks, reminders */}
+          <ContactActivities contact={contact} conversation={conversation} />
 
           {/* Divider */}
           <div className="my-4 border-t border-border" />

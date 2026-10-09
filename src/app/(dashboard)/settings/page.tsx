@@ -13,6 +13,8 @@ import { SecurityPanel } from '@/components/settings/security-panel';
 import { AppearancePanel } from '@/components/settings/appearance-panel';
 import { WhatsAppConfig } from '@/components/settings/whatsapp-config';
 import { TemplateManager } from '@/components/settings/template-manager';
+import { EmailTemplateManager } from '@/components/settings/email-template-manager';
+import { RemindersSettings } from '@/components/settings/reminders-settings';
 import { QuickRepliesManager } from '@/components/settings/quick-replies-manager';
 import { FieldsAndTagsPanel } from '@/components/settings/fields-and-tags-panel';
 import { DealsSettings } from '@/components/settings/deals-settings';
@@ -76,6 +78,8 @@ function SettingsPageInner() {
     appearance: <AppearancePanel />,
     whatsapp: <WhatsAppConfig />,
     templates: <TemplateManager />,
+    'email-templates': <EmailTemplateManager />,
+    reminders: <RemindersSettings />,
     'quick-replies': <QuickRepliesManager />,
     fields: <FieldsAndTagsPanel />,
     deals: <DealsSettings />,

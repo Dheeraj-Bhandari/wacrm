@@ -39,6 +39,11 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
+import { AutomationJsonTools } from "./automation-json-tools"
+import type {
+  AutomationDocStep,
+  AutomationDocument,
+} from "@/lib/automations/document"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -718,6 +723,32 @@ export function AutomationBuilder({ initial }: { initial: BuilderInitial }) {
     }
   }
 
+  // Load a pasted / example document into the builder, replacing the
+  // current flow. Trigger + name + steps all come from the document.
+  function importDocument(doc: AutomationDocument) {
+    setState({
+      id: state.id,
+      name: doc.name ?? "",
+      description: doc.description ?? "",
+      trigger_type: doc.trigger.type as AutomationTriggerType,
+      trigger_config: (doc.trigger.config ?? {}) as Record<string, unknown>,
+      is_active: Boolean(doc.is_active),
+      steps: docStepsToBuilder(doc.steps),
+    })
+    setExpandedId(null)
+  }
+
+  // The current builder state as an exportable document (for Copy /
+  // Validate run).
+  const currentDocument: AutomationDocument = {
+    version: 1,
+    name: state.name || t("untitled"),
+    description: state.description || null,
+    trigger: { type: state.trigger_type, config: state.trigger_config },
+    is_active: state.is_active,
+    steps: builderToDocSteps(state.steps),
+  }
+
   return (
     <div className="fixed inset-0 flex flex-col bg-background">
       {/* Top bar. At sub-sm widths the "Active" label is hidden and the
@@ -746,6 +777,11 @@ export function AutomationBuilder({ initial }: { initial: BuilderInitial }) {
             aria-label={t("activeAria")}
           />
         </div>
+        <AutomationJsonTools
+          currentDocument={currentDocument}
+          automationId={initial.id}
+          onImport={importDocument}
+        />
         <Button
           onClick={save}
           disabled={saving}
@@ -1592,4 +1628,45 @@ export function fromServerSteps(nodes: ServerStepNode[]): BuilderStep[] {
           }
         : undefined,
   }))
+}
+
+// ------------------------------------------------------------
+// Document <-> builder-step conversion (JSON import/export).
+//
+// The portable AutomationDocument uses `type`/`config` with nested
+// `branches`; the builder uses BuilderStep (`cid`, `step_type`,
+// `step_config`, `branches`). These two helpers bridge them so the
+// JSON tools can load a document into the canvas and read the canvas
+// back out as a document.
+// ------------------------------------------------------------
+
+function docStepsToBuilder(steps: AutomationDocStep[]): BuilderStep[] {
+  return (steps ?? []).map((s) => ({
+    cid: cid(),
+    step_type: s.type as AutomationStepType,
+    step_config: s.config ?? {},
+    branches:
+      s.type === "condition"
+        ? {
+            yes: docStepsToBuilder(s.branches?.yes ?? []),
+            no: docStepsToBuilder(s.branches?.no ?? []),
+          }
+        : undefined,
+  }))
+}
+
+function builderToDocSteps(steps: BuilderStep[]): AutomationDocStep[] {
+  return (steps ?? []).map((s) => {
+    const out: AutomationDocStep = {
+      type: s.step_type,
+      config: s.step_config ?? {},
+    }
+    if (s.step_type === "condition" && s.branches) {
+      out.branches = {
+        yes: builderToDocSteps(s.branches.yes),
+        no: builderToDocSteps(s.branches.no),
+      }
+    }
+    return out
+  })
 }

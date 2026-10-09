@@ -108,9 +108,13 @@ export default function NewBroadcastPage() {
       template_name: template.name,
       template_language: template.language ?? 'en_US',
       template_variables: variables,
+      // Persist the FULL audience filter (not just type+tagIds) so a
+      // later schedule/start can materialize recipients server-side.
       audience_filter: {
         type: audience.type,
         tagIds: audience.tagIds,
+        customField: audience.customField,
+        excludeTagIds: audience.excludeTagIds,
       },
       status: 'draft',
       total_recipients: 0,
@@ -127,6 +131,75 @@ export default function NewBroadcastPage() {
     }
     toast.success(t('toastDraftSaved'));
     router.push('/broadcasts');
+  }
+
+  /**
+   * Schedule the broadcast for a future instant. Creates the draft row
+   * (full audience_filter + variables) then calls the schedule endpoint,
+   * which resolves the audience and freezes recipient params server-side
+   * so the cron can send it with no browser. `scheduledAtIso` is an
+   * absolute instant derived from the picker's local wall time.
+   */
+  async function handleSchedule(scheduledAtIso: string) {
+    if (!template || !name.trim()) {
+      toast.error(t('toastGiveName'));
+      return;
+    }
+    const supabase = createClient();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    const user = session?.user;
+    if (!user) {
+      toast.error(t('toastNotSignedIn'));
+      return;
+    }
+    if (!accountId) {
+      toast.error(t('toastNotLinked'));
+      return;
+    }
+
+    const { data: draft, error } = await supabase
+      .from('broadcasts')
+      .insert({
+        user_id: user.id,
+        account_id: accountId,
+        name: name.trim(),
+        template_name: template.name,
+        template_language: template.language ?? 'en_US',
+        template_variables: variables,
+        audience_filter: {
+          type: audience.type,
+          tagIds: audience.tagIds,
+          customField: audience.customField,
+          excludeTagIds: audience.excludeTagIds,
+        },
+        status: 'draft',
+        total_recipients: 0,
+      })
+      .select('id')
+      .single();
+
+    if (error || !draft) {
+      toast.error(t('toastFailedDraft', { error: error?.message ?? 'unknown' }));
+      return;
+    }
+
+    const res = await fetch(`/api/whatsapp/broadcast/${draft.id}/schedule`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scheduled_at: scheduledAtIso }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      // The draft was created but scheduling failed — remove it so the
+      // user isn't left with an un-scheduled orphan.
+      await supabase.from('broadcasts').delete().eq('id', draft.id);
+      toast.error(data?.error || t('scheduleSend.scheduleFailed'));
+      return;
+    }
+    toast.success(t('scheduleSend.scheduled'));
+    router.push(`/broadcasts/${draft.id}`);
   }
 
   return (
@@ -223,6 +296,7 @@ export default function NewBroadcastPage() {
               audience={audience}
               onSend={handleSend}
               onSaveDraft={handleSaveDraft}
+              onSchedule={handleSchedule}
               onBack={() => setCurrentStep(2)}
               isProcessing={isProcessing}
               progress={progress}

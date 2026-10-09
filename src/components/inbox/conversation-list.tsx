@@ -8,7 +8,7 @@ import {
   normalizeConversations,
 } from "@/lib/inbox/conversations";
 import { cn } from "@/lib/utils";
-import type { Conversation, ConversationStatus, Tag } from "@/types";
+import type { Conversation, ConversationStatus, PipelineStage, Tag } from "@/types";
 import { Search, ChevronDown, X } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useTranslations } from "next-intl";
@@ -72,6 +72,11 @@ export function ConversationList({
   const [tags, setTags] = useState<Tag[]>([]);
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [selectedCompany, setSelectedCompany] = useState<string | null>(null);
+  // Pipeline-stage filter: a conversation matches when its contact has a
+  // deal in the selected stage. Stage lives on deals, embedded via
+  // CONVERSATION_SELECT. Stage defs are loaded once for the picker labels.
+  const [stages, setStages] = useState<PipelineStage[]>([]);
+  const [selectedStageId, setSelectedStageId] = useState<string | null>(null);
 
   // Keep the latest callback in a ref so the fetch effect below can
   // have a stable, empty-dep identity. Previously the fetch useCallback
@@ -140,6 +145,24 @@ export function ConversationList({
     };
   }, []);
 
+  // Pipeline stage definitions for the filter picker — loaded once, ordered
+  // by position, so the dropdown shows every stage regardless of which
+  // conversations are loaded.
+  useEffect(() => {
+    const supabase = createClient();
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from("pipeline_stages")
+        .select("*")
+        .order("position");
+      if (!cancelled && data) setStages(data as PipelineStage[]);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Company options are derived from the loaded conversations — there's no
   // separate companies table, and only companies with a live conversation
   // are worth offering as an inbox filter.
@@ -167,12 +190,18 @@ export function ConversationList({
       result = result.filter((c) => c.status === filter);
     }
 
-    // Contact-based filters (tags via OR logic, exact company match).
-    if (selectedTagIds.length > 0 || selectedCompany !== null) {
+    // Contact-based filters (tags via OR logic, exact company match,
+    // pipeline stage via the contact's deals).
+    if (
+      selectedTagIds.length > 0 ||
+      selectedCompany !== null ||
+      selectedStageId !== null
+    ) {
       result = result.filter((c) =>
         matchesContactFilters(c, {
           tagIds: selectedTagIds,
           company: selectedCompany,
+          stageId: selectedStageId,
         })
       );
     }
@@ -188,7 +217,7 @@ export function ConversationList({
     }
 
     return result;
-  }, [conversations, filter, search, selectedTagIds, selectedCompany]);
+  }, [conversations, filter, search, selectedTagIds, selectedCompany, selectedStageId]);
 
   const toggleTag = useCallback((id: string) => {
     setSelectedTagIds((prev) =>
@@ -199,9 +228,19 @@ export function ConversationList({
   const clearContactFilters = useCallback(() => {
     setSelectedTagIds([]);
     setSelectedCompany(null);
+    setSelectedStageId(null);
   }, []);
 
-  const hasContactFilters = selectedTagIds.length > 0 || selectedCompany !== null;
+  const stagesById = useMemo(() => {
+    const m = new Map<string, PipelineStage>();
+    for (const s of stages) m.set(s.id, s);
+    return m;
+  }, [stages]);
+
+  const hasContactFilters =
+    selectedTagIds.length > 0 ||
+    selectedCompany !== null ||
+    selectedStageId !== null;
 
   const handleSearchChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -350,6 +389,62 @@ export function ConversationList({
               </DropdownMenuContent>
             </DropdownMenu>
           )}
+
+          {stages.length > 0 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                className={cn(
+                  "inline-flex max-w-40 items-center justify-center h-7 gap-1 px-2 text-xs rounded-md hover:bg-muted",
+                  selectedStageId
+                    ? "text-primary"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <span className="truncate">
+                  {selectedStageId
+                    ? stagesById.get(selectedStageId)?.name ?? t("stage")
+                    : t("stage")}
+                </span>
+                <ChevronDown className="h-3 w-3 shrink-0" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="start"
+                className="max-h-64 w-56 border-border bg-popover"
+              >
+                <DropdownMenuItem
+                  onClick={() => setSelectedStageId(null)}
+                  className={cn(
+                    "text-sm",
+                    selectedStageId === null
+                      ? "text-primary"
+                      : "text-popover-foreground"
+                  )}
+                >
+                  {t("allStages")}
+                </DropdownMenuItem>
+                {stages.map((s) => (
+                  <DropdownMenuItem
+                    key={s.id}
+                    onClick={() => setSelectedStageId(s.id)}
+                    className={cn(
+                      "text-sm",
+                      selectedStageId === s.id
+                        ? "text-primary"
+                        : "text-popover-foreground"
+                    )}
+                  >
+                    <span className="flex items-center gap-2">
+                      <span
+                        className="h-2 w-2 shrink-0 rounded-full"
+                        style={{ backgroundColor: s.color }}
+                      />
+                      <span className="truncate">{s.name}</span>
+                    </span>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
 
         {hasContactFilters && (
@@ -377,6 +472,25 @@ export function ConversationList({
                 className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] text-foreground hover:bg-muted/70"
               >
                 <span className="max-w-24 truncate">{selectedCompany}</span>
+                <X className="h-3 w-3" />
+              </button>
+            )}
+            {selectedStageId && (
+              <button
+                onClick={() => setSelectedStageId(null)}
+                className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] text-foreground hover:bg-muted/70"
+              >
+                <span
+                  className="h-1.5 w-1.5 shrink-0 rounded-full"
+                  style={{
+                    backgroundColor:
+                      stagesById.get(selectedStageId)?.color ??
+                      "var(--muted-foreground)",
+                  }}
+                />
+                <span className="max-w-24 truncate">
+                  {stagesById.get(selectedStageId)?.name ?? t("stage")}
+                </span>
                 <X className="h-3 w-3" />
               </button>
             )}
