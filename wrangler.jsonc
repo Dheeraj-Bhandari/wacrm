@@ -1,0 +1,20 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "wacrm",
+  "main": ".open-next/worker.js",
+  // 2024-09-23 or later makes `nodejs_compat` also enable
+  // nodejs_compat_v2, which is what gives node:crypto / node:buffer /
+  // the Supabase SSR client a working Node surface. node:crypto is what
+  // src/lib/whatsapp/encryption.ts needs for AES-256-GCM.
+  "compatibility_date": "2025-09-23",
+  "compatibility_flags": ["nodejs_compat"],
+  // OpenNext emits the client bundle + static files here; this binding
+  // serves them straight from Cloudflare's edge instead of the Worker.
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "observability": {
+    "enabled": true
+  }
+}
