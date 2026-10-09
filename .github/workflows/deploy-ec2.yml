@@ -103,6 +103,18 @@ jobs:
           # in sync with the repo on every deploy (one less manual step).
           echo "b64=$(base64 -w0 docker-compose.prod.yml)" >> "$GITHUB_OUTPUT"
 
+      # TEMPORARY DEBUG: print the OIDC token's `sub` claim so the AWS
+      # trust policy condition can be matched exactly. Safe to log — it
+      # exposes no secret, just the subject (repo:owner/name:ref:...).
+      # Remove this step once the trust policy is confirmed working.
+      - name: Debug OIDC subject
+        run: |
+          TOKEN=$(curl -sS \
+            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | jq -r '.value')
+          echo "----- OIDC claims -----"
+          echo "$TOKEN" | cut -d. -f2 | base64 -d 2>/dev/null | jq '{sub, aud, repository, ref, workflow_ref, job_workflow_ref}'
+
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
